@@ -2,7 +2,7 @@
 
 import { RefineThemes } from "@refinedev/antd";
 import { ConfigProvider, theme } from "antd";
-import React, { createContext, PropsWithChildren, useEffect, useState } from "react";
+import { createContext, type PropsWithChildren, useEffect, useState } from "react";
 
 type ColorModeContextType = {
   mode: string;
@@ -11,7 +11,7 @@ type ColorModeContextType = {
 
 export const ColorModeContext = createContext<ColorModeContextType>({} as ColorModeContextType);
 
-export const ColorModeContextProvider: React.FC<PropsWithChildren> = ({ children }) => {
+export function ColorModeContextProvider({ children }: PropsWithChildren) {
   const [isMounted, setIsMounted] = useState(false);
   const [mode, setMode] = useState("dark");
 
@@ -80,4 +80,4 @@ export const ColorModeContextProvider: React.FC<PropsWithChildren> = ({ children
       </ConfigProvider>
     </ColorModeContext.Provider>
   );
-};
+}

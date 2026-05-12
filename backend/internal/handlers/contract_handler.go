@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,10 @@ import (
 	"rygell-dashboard/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+const contractUpdateBodyLimit = 2 * 1024 * 1024
 
 // ContractHandler handles HTTP requests for contract data.
 type ContractHandler struct {
@@ -44,6 +48,27 @@ func parsePagination(c *gin.Context) (limit, offset int) {
 		limit = 0
 	}
 	return limit, offset
+}
+
+func respondContractDataError(c *gin.Context, err error, notFoundMessage string) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": notFoundMessage})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
+func readContractUpdateBody(c *gin.Context) ([]byte, bool) {
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, contractUpdateBodyLimit+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+		return nil, false
+	}
+	if int64(len(bodyBytes)) > contractUpdateBodyLimit {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+		return nil, false
+	}
+	return bodyBytes, true
 }
 
 // --- Dedicated Fix ---
@@ -109,9 +134,8 @@ func (h *ContractHandler) UpdateDedicatedFix(c *gin.Context) {
 		return
 	}
 	// Read raw body and unmarshal on top of existing record
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+	bodyBytes, ok := readContractUpdateBody(c)
+	if !ok {
 		return
 	}
 	if err := json.Unmarshal(bodyBytes, contract); err != nil {
@@ -130,7 +154,7 @@ func (h *ContractHandler) UpdateDedicatedFix(c *gin.Context) {
 	note := c.Query("note")
 
 	if err := h.service.UpdateDedicatedFix(contract, changedBy, note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	// Return fresh record with associations
@@ -145,7 +169,7 @@ func (h *ContractHandler) DeleteDedicatedFix(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteDedicatedFix(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -167,7 +191,7 @@ func (h *ContractHandler) UpdateDedicatedFixAgreement(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateDedicatedFixAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "agreement updated"})
@@ -234,9 +258,8 @@ func (h *ContractHandler) UpdateDedicatedVar(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "contract not found"})
 		return
 	}
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+	bodyBytes, ok := readContractUpdateBody(c)
+	if !ok {
 		return
 	}
 	if err := json.Unmarshal(bodyBytes, contract); err != nil {
@@ -256,7 +279,7 @@ func (h *ContractHandler) UpdateDedicatedVar(c *gin.Context) {
 	note := c.Query("note")
 
 	if err := h.service.UpdateDedicatedVar(contract, changedBy, note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	updated, _ := h.service.GetDedicatedVarByID(uint(id))
@@ -270,7 +293,7 @@ func (h *ContractHandler) DeleteDedicatedVar(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteDedicatedVar(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -292,7 +315,7 @@ func (h *ContractHandler) UpdateDedicatedVarAgreement(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateDedicatedVarAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "agreement updated"})
@@ -359,9 +382,8 @@ func (h *ContractHandler) UpdateOncall(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "contract not found"})
 		return
 	}
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+	bodyBytes, ok := readContractUpdateBody(c)
+	if !ok {
 		return
 	}
 	if err := json.Unmarshal(bodyBytes, contract); err != nil {
@@ -381,7 +403,7 @@ func (h *ContractHandler) UpdateOncall(c *gin.Context) {
 	note := c.Query("note")
 
 	if err := h.service.UpdateOncall(contract, changedBy, note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	updated, _ := h.service.GetOncallByID(uint(id))
@@ -395,7 +417,7 @@ func (h *ContractHandler) DeleteOncall(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteOncall(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -417,7 +439,7 @@ func (h *ContractHandler) UpdateOncallAgreement(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateOncallAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondContractDataError(c, err, "contract not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "agreement updated"})

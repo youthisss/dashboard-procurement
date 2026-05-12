@@ -6,6 +6,7 @@ import { Form, Input, Select, InputNumber, DatePicker, Row, Col, Typography, Spa
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import AgreementHistoryPanel from "@/components/contracts/AgreementHistoryPanel";
+import ContractModeSwitch from "@/components/contracts/ContractModeSwitch";
 
 export default function DedicatedFixEdit() {
   const { formProps, saveButtonProps, query } = useForm({
@@ -70,18 +71,19 @@ export default function DedicatedFixEdit() {
   };
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto" }}>
+    <div className="dashboard-page-form">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
         <Space>
           <ListButton icon={<ArrowLeftOutlined />} shape="circle" type="text" hideText />
           <Typography.Title level={2} style={{ margin: 0, fontWeight: 700 }}>Edit Dedicated Fix Contract</Typography.Title>
         </Space>
+        <ContractModeSwitch />
       </div>
 
       <Row gutter={[24, 24]} align="stretch" justify="center">
         <Col xs={24} lg={14}>
-          <Card variant="borderless" style={{ borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+          <Card variant="borderless" className="dashboard-card">
             <Form {...fixFormProps} onFinish={handleOnFinish} layout="vertical">
 
               <Divider titlePlacement="start">General Information</Divider>

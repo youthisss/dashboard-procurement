@@ -147,7 +147,7 @@ export default function VendorShow() {
   if (vendorLoading) return <div style={{ height: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AppSpinner text="Loading vendor details..." /></div>;
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto", minHeight: '100vh' }}>
+    <div className="dashboard-page-full">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
 
       {/* Header */}

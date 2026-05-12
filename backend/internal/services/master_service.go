@@ -105,8 +105,8 @@ func (s *MasterService) DeleteZone(id uint) error {
 
 // --- MOT ---
 
-func (s *MasterService) GetAllMots() ([]models.Mot, error) {
-	return s.repo.GetAllMots()
+func (s *MasterService) GetAllMots(search string) ([]models.Mot, error) {
+	return s.repo.GetAllMots(search)
 }
 
 func (s *MasterService) GetMotByID(id uint) (*models.Mot, error) {
@@ -127,8 +127,8 @@ func (s *MasterService) DeleteMot(id uint) error {
 
 // --- UOM ---
 
-func (s *MasterService) GetAllUoms() ([]models.Uom, error) {
-	return s.repo.GetAllUoms()
+func (s *MasterService) GetAllUoms(search string) ([]models.Uom, error) {
+	return s.repo.GetAllUoms(search)
 }
 
 func (s *MasterService) GetUomByID(id uint) (*models.Uom, error) {

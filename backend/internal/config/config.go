@@ -30,6 +30,11 @@ type Config struct {
 	AdminPassword     string
 	AdminSyncPassword bool
 	ImportKeepFiles   bool
+	GinMode           string
+	TrustedProxies    string
+	MaxBodyBytes      int64
+	ImportMaxBytes    int64
+	ImportJSONBytes   int64
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -57,6 +62,11 @@ func Load() *Config {
 		AdminPassword:     getEnv("ADMIN_PASSWORD", ""),
 		AdminSyncPassword: getEnvBool("ADMIN_SYNC_PASSWORD", false),
 		ImportKeepFiles:   getEnvBool("IMPORT_KEEP_FILES", false),
+		GinMode:           getEnv("GIN_MODE", "debug"),
+		TrustedProxies:    getEnv("TRUSTED_PROXIES", ""),
+		MaxBodyBytes:      getEnvInt64("MAX_BODY_BYTES", 10*1024*1024),
+		ImportMaxBytes:    getEnvInt64("IMPORT_MAX_BYTES", 55*1024*1024),
+		ImportJSONBytes:   getEnvInt64("IMPORT_JSON_BYTES", 20*1024*1024),
 	}
 }
 
@@ -82,6 +92,22 @@ func getEnvBool(key string, fallback bool) bool {
 	}
 	parsed, err := strconv.ParseBool(trimmed)
 	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return fallback
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || parsed <= 0 {
 		return fallback
 	}
 	return parsed

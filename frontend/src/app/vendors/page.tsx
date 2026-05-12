@@ -34,11 +34,13 @@ export default function VendorList() {
       ];
     },
   });
+  const pagination = { ...((tableProps as any).pagination || {}) };
+  delete pagination.position;
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto", minHeight: 'calc(100vh - 64px)' }}>
+    <div className="dashboard-page">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
+      <div className="dashboard-page-header">
         <div>
           <Title level={2} style={{ margin: '0 0 8px 0', fontWeight: 700 }}>
             Vendor Master Data
@@ -47,14 +49,14 @@ export default function VendorList() {
         <CreateButton
           type="default"
           icon={<PlusOutlined />}
-          style={{ height: '40px', padding: '0 20px', fontWeight: 500, borderRadius: '6px' }}
+          className="dashboard-action-button"
         >
           Add Vendor
         </CreateButton>
       </div>
 
-      <Card variant="borderless" className="no-padding-card" style={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid var(--ant-color-border-secondary)' }}>
+      <Card variant="borderless" className="no-padding-card dashboard-table-card">
+        <div className="dashboard-search-strip">
           <Form {...(searchFormProps as any)} layout="inline" onValuesChange={() => searchFormProps.form?.submit()}>
             <Form.Item name="q" style={{ margin: 0 }}>
               <Input
@@ -69,6 +71,10 @@ export default function VendorList() {
         </div>
         <Table
           {...(tableProps as any)}
+          pagination={{
+            ...pagination,
+            placement: ["bottomEnd"],
+          }}
           rowKey="id"
           scroll={{ x: 'max-content' }}
         >

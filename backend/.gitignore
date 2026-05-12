@@ -3,3 +3,5 @@ wipe_data.go
 .gocache/
 uploads/
 cmd/server/uploads/
+/server
+/server.exe

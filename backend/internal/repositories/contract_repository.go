@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"strings"
+
 	"rygell-dashboard/internal/models"
 
 	"gorm.io/gorm"
@@ -15,6 +17,50 @@ type ContractRepository struct {
 // NewContractRepository creates a new ContractRepository.
 func NewContractRepository(db *gorm.DB) *ContractRepository {
 	return &ContractRepository{db: db}
+}
+
+// DB exposes the current GORM handle for transaction-scoped services.
+func (r *ContractRepository) DB() *gorm.DB {
+	return r.db
+}
+
+func updateExistingContract(db *gorm.DB, model interface{}, id uint, values interface{}) error {
+	if err := db.First(model, id).Error; err != nil {
+		return err
+	}
+	return db.Model(model).
+		Select("*").
+		Omit(clause.Associations, "id", "created_at", "deleted_at").
+		Updates(values).Error
+}
+
+func updateExistingContractMap(db *gorm.DB, model interface{}, id uint, updates map[string]interface{}) error {
+	if err := db.First(model, id).Error; err != nil {
+		return err
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	result := db.Model(model).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
+}
+
+func deleteExistingContract(db *gorm.DB, model interface{}, id uint) error {
+	result := db.Delete(model, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func normalizeSPK(spk string) string {
+	return strings.ToLower(strings.TrimSpace(spk))
 }
 
 func applyCommonContractFilters(query *gorm.DB, filters map[string]interface{}) *gorm.DB {
@@ -108,11 +154,11 @@ func (r *ContractRepository) CreateDedicatedFix(contract *models.ContractDedicat
 }
 
 func (r *ContractRepository) UpdateDedicatedFix(contract *models.ContractDedicatedFix) error {
-	return r.db.Omit(clause.Associations).Save(contract).Error
+	return updateExistingContract(r.db, &models.ContractDedicatedFix{}, contract.ID, contract)
 }
 
 func (r *ContractRepository) DeleteDedicatedFix(id uint) error {
-	return r.db.Delete(&models.ContractDedicatedFix{}, id).Error
+	return deleteExistingContract(r.db, &models.ContractDedicatedFix{}, id)
 }
 
 func (r *ContractRepository) BulkCreateDedicatedFix(contracts []models.ContractDedicatedFix) error {
@@ -122,6 +168,16 @@ func (r *ContractRepository) BulkCreateDedicatedFix(contracts []models.ContractD
 func (r *ContractRepository) FindDedicatedFixBySPK(spk string) (*models.ContractDedicatedFix, error) {
 	var contract models.ContractDedicatedFix
 	err := r.db.Where("spk_number = ?", spk).First(&contract).Error
+	return &contract, err
+}
+
+func (r *ContractRepository) FindDedicatedFixBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractDedicatedFix, error) {
+	normalized := normalizeSPK(spk)
+	if normalized == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var contract models.ContractDedicatedFix
+	err := r.db.Where("LOWER(TRIM(spk_number)) = ? AND vendor_id = ? AND mill_id = ?", normalized, vendorID, millID).First(&contract).Error
 	return &contract, err
 }
 
@@ -245,11 +301,11 @@ func (r *ContractRepository) CreateDedicatedVar(contract *models.ContractDedicat
 }
 
 func (r *ContractRepository) UpdateDedicatedVar(contract *models.ContractDedicatedVar) error {
-	return r.db.Omit(clause.Associations).Save(contract).Error
+	return updateExistingContract(r.db, &models.ContractDedicatedVar{}, contract.ID, contract)
 }
 
 func (r *ContractRepository) DeleteDedicatedVar(id uint) error {
-	return r.db.Delete(&models.ContractDedicatedVar{}, id).Error
+	return deleteExistingContract(r.db, &models.ContractDedicatedVar{}, id)
 }
 
 func (r *ContractRepository) BulkCreateDedicatedVar(contracts []models.ContractDedicatedVar) error {
@@ -259,6 +315,16 @@ func (r *ContractRepository) BulkCreateDedicatedVar(contracts []models.ContractD
 func (r *ContractRepository) FindDedicatedVarBySPK(spk string) (*models.ContractDedicatedVar, error) {
 	var contract models.ContractDedicatedVar
 	err := r.db.Where("spk_number = ?", spk).First(&contract).Error
+	return &contract, err
+}
+
+func (r *ContractRepository) FindDedicatedVarBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractDedicatedVar, error) {
+	normalized := normalizeSPK(spk)
+	if normalized == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var contract models.ContractDedicatedVar
+	err := r.db.Where("LOWER(TRIM(spk_number)) = ? AND vendor_id = ? AND mill_id = ?", normalized, vendorID, millID).First(&contract).Error
 	return &contract, err
 }
 
@@ -390,11 +456,11 @@ func (r *ContractRepository) CreateOncall(contract *models.ContractOncall) error
 }
 
 func (r *ContractRepository) UpdateOncall(contract *models.ContractOncall) error {
-	return r.db.Omit(clause.Associations).Save(contract).Error
+	return updateExistingContract(r.db, &models.ContractOncall{}, contract.ID, contract)
 }
 
 func (r *ContractRepository) DeleteOncall(id uint) error {
-	return r.db.Delete(&models.ContractOncall{}, id).Error
+	return deleteExistingContract(r.db, &models.ContractOncall{}, id)
 }
 
 func (r *ContractRepository) BulkCreateOncall(contracts []models.ContractOncall) error {
@@ -407,16 +473,26 @@ func (r *ContractRepository) FindOncallBySPK(spk string) (*models.ContractOncall
 	return &contract, err
 }
 
+func (r *ContractRepository) FindOncallBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractOncall, error) {
+	normalized := normalizeSPK(spk)
+	if normalized == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var contract models.ContractOncall
+	err := r.db.Where("LOWER(TRIM(spk_number)) = ? AND vendor_id = ? AND mill_id = ?", normalized, vendorID, millID).First(&contract).Error
+	return &contract, err
+}
+
 // --- Map-based Updates (partial update, no associations) ---
 
 func (r *ContractRepository) UpdateDedicatedFixMap(id uint, updates map[string]interface{}) error {
-	return r.db.Model(&models.ContractDedicatedFix{}).Where("id = ?", id).Updates(updates).Error
+	return updateExistingContractMap(r.db, &models.ContractDedicatedFix{}, id, updates)
 }
 
 func (r *ContractRepository) UpdateDedicatedVarMap(id uint, updates map[string]interface{}) error {
-	return r.db.Model(&models.ContractDedicatedVar{}).Where("id = ?", id).Updates(updates).Error
+	return updateExistingContractMap(r.db, &models.ContractDedicatedVar{}, id, updates)
 }
 
 func (r *ContractRepository) UpdateOncallMap(id uint, updates map[string]interface{}) error {
-	return r.db.Model(&models.ContractOncall{}).Where("id = ?", id).Updates(updates).Error
+	return updateExistingContractMap(r.db, &models.ContractOncall{}, id, updates)
 }

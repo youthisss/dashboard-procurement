@@ -16,6 +16,11 @@ func NewAuditRepository(db *gorm.DB) *AuditRepository {
 	return &AuditRepository{db: db}
 }
 
+// DB exposes the current GORM handle for transaction-scoped services.
+func (r *AuditRepository) DB() *gorm.DB {
+	return r.db
+}
+
 // Create inserts a new audit log entry.
 func (r *AuditRepository) Create(log *models.AuditLog) error {
 	return r.db.Create(log).Error
@@ -49,10 +54,11 @@ func (r *AuditRepository) GetAll(limit int) ([]models.AuditLog, error) {
 	err := query.Find(&logs).Error
 	return logs, err
 }
+
 // GetByVendor returns all audit logs for a specific vendor, including those from their contracts.
 func (r *AuditRepository) GetByVendor(vendorID uint) ([]models.AuditLog, error) {
 	var logs []models.AuditLog
-	
+
 	// Complex query: logs for the vendor itself OR logs for any of the vendor's contracts
 	err := r.db.Raw(`
 		SELECT * FROM audit_logs 
@@ -62,6 +68,6 @@ func (r *AuditRepository) GetByVendor(vendorID uint) ([]models.AuditLog, error) 
 		OR (entity_type = 'contract_oncall' AND entity_id IN (SELECT id FROM contract_oncalls WHERE vendor_id = ?))
 		ORDER BY created_at DESC
 	`, vendorID, vendorID, vendorID, vendorID).Scan(&logs).Error
-	
+
 	return logs, err
 }

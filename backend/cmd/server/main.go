@@ -2,7 +2,9 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"strings"
+	"time"
 
 	"rygell-dashboard/internal/config"
 	"rygell-dashboard/internal/database"
@@ -60,8 +62,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to count existing users: %v", err)
 	}
-	if (totalUsers == 0 || cfg.AdminSyncPassword) && (strings.TrimSpace(cfg.AdminPassword) == "" || cfg.AdminPassword == "admin123" || cfg.AdminPassword == "change_me") {
-		log.Fatalf("Invalid ADMIN_PASSWORD: set a strong non-default value for admin bootstrap/sync")
+	if totalUsers == 0 || cfg.AdminSyncPassword {
+		if err := services.ValidatePassword(cfg.AdminPassword); err != nil {
+			log.Fatalf("Invalid ADMIN_PASSWORD: %v", err)
+		}
 	}
 
 	userService := services.NewUserService(userRepo, cfg.JWTSecret, cfg.JWTExpiryHours)
@@ -75,7 +79,15 @@ func main() {
 	// Start server
 	addr := ":" + cfg.ServerPort
 	log.Printf("Rygell Dashboard API starting on %s", addr)
-	if err := r.Run(addr); err != nil {
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

@@ -8,7 +8,6 @@ import {
   CloudUploadOutlined,
   ShopOutlined,
   EnvironmentOutlined,
-  AimOutlined,
   FileDoneOutlined,
   CarOutlined,
   LogoutOutlined,
@@ -31,7 +30,7 @@ export const CustomSider = ({ collapsed, onCollapse }: { collapsed: boolean, onC
   const router = useRouter();
   const authUser = getAuthUser();
   const profileName = authUser?.name || authUser?.username || "User";
-  const profileRole = authUser?.username === "admin" ? "Admin" : "Staff";
+  const profileRole = authUser?.is_admin ? "Admin" : "Staff";
 
   const menuItems = [
     {
@@ -48,11 +47,6 @@ export const CustomSider = ({ collapsed, onCollapse }: { collapsed: boolean, onC
       key: "/mills",
       icon: <EnvironmentOutlined style={{ fontSize: '18px' }} />,
       label: "Mills",
-    },
-    {
-      key: "/zones",
-      icon: <AimOutlined style={{ fontSize: '18px' }} />,
-      label: "Zones",
     },
     {
       key: "/contracts/dedicated-fix",
@@ -79,7 +73,7 @@ export const CustomSider = ({ collapsed, onCollapse }: { collapsed: boolean, onC
       icon: <CloudUploadOutlined style={{ fontSize: '18px' }} />,
       label: "Import Wizard",
     },
-    ...(authUser?.username === "admin"
+    ...(authUser?.is_admin
       ? [
           {
             key: "/admin/users",

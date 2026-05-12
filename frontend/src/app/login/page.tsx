@@ -22,6 +22,7 @@ type LoginResponse = {
     id: number;
     name: string;
     username: string;
+    is_admin?: boolean;
   };
 };
 

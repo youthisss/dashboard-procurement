@@ -6,6 +6,7 @@ export type AuthUser = {
   id: number;
   name: string;
   username: string;
+  is_admin?: boolean;
 };
 
 export function getToken(): string | null {

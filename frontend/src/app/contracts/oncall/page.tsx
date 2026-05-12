@@ -6,6 +6,7 @@ import { Table, Space, Typography, Card, Form, Input } from "antd";
 import { PhoneOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { EditButton, DeleteButton, Breadcrumb, CreateButton } from "@refinedev/antd";
 import { useSearchParams } from "next/navigation";
+import ContractModeSwitch from "@/components/contracts/ContractModeSwitch";
 
 const { Title, Text } = Typography;
 
@@ -51,27 +52,32 @@ export default function OncallList() {
     if (!year || !month || !day) return dateStr;
     return `${day}/${month}/${year}`;
   };
+  const pagination = { ...((tableProps as any).pagination || {}) };
+  delete pagination.position;
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto", minHeight: 'calc(100vh - 64px)' }}>
+    <div className="dashboard-page">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
+      <div className="dashboard-page-header">
         <div>
           <Title level={2} style={{ margin: '0 0 8px 0', fontWeight: 700 }}>
             Oncall Routings
           </Title>
         </div>
-        <CreateButton
-          type="default"
-          icon={<PlusOutlined />}
-          style={{ height: '40px', padding: '0 20px', fontWeight: 500, borderRadius: '6px' }}
-        >
-          Create Contract
-        </CreateButton>
+        <Space size={12} wrap>
+          <ContractModeSwitch />
+          <CreateButton
+            type="default"
+            icon={<PlusOutlined />}
+            className="dashboard-action-button"
+          >
+            Create Contract
+          </CreateButton>
+        </Space>
       </div>
 
-      <Card variant="borderless" className="no-padding-card" style={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid var(--ant-color-border-secondary)' }}>
+      <Card variant="borderless" className="no-padding-card dashboard-table-card">
+        <div className="dashboard-search-strip">
           <Form {...(searchFormProps as any)} layout="inline" onValuesChange={() => searchFormProps.form?.submit()}>
             <Form.Item name="q" style={{ margin: 0 }}>
               <Input
@@ -87,10 +93,9 @@ export default function OncallList() {
         <Table
           {...tableProps}
           pagination={{
-            ...tableProps.pagination as any,
-            position: undefined,
-            placement: "bottomRight",
-          } as any}
+            ...pagination,
+            placement: ["bottomEnd"],
+          }}
           rowKey="id"
           scroll={{ x: 'max-content' }}
         >
@@ -107,7 +112,7 @@ export default function OncallList() {
             title="Validity"
             width={220}
             render={(_, record: any) => (
-              <Space orientation="vertical" size="small">
+              <Space direction="vertical" size="small">
                 <Text style={{ fontSize: 12 }}>Start: {formatDate(record.validity_start)}</Text>
                 <Text style={{ fontSize: 12 }}>End: {formatDate(record.validity_end)}</Text>
               </Space>
@@ -120,7 +125,7 @@ export default function OncallList() {
             title="Route"
             width={240}
             render={(_, record: any) => (
-              <Space orientation="vertical" size="small">
+              <Space direction="vertical" size="small">
                 <Text style={{ fontSize: 12 }}>Origin: <Text strong>{record.origin_zone?.name || "-"}</Text></Text>
                 <Text style={{ fontSize: 12 }}>Dest: <Text strong>{record.dest_zone?.name || "-"}</Text></Text>
               </Space>

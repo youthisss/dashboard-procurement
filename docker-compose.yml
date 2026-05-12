@@ -1,18 +1,21 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:16-alpine
     container_name: rygell-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: rygell
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
-      POSTGRES_DB: rygell_dashboard
+      POSTGRES_USER: ${DB_USER:-rygell}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required for local Postgres}
+      POSTGRES_DB: ${DB_NAME:-rygell_dashboard}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   rygell-api:
     build:
@@ -21,37 +24,50 @@ services:
     container_name: rygell-api
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: rygell
-      DB_PASSWORD: ${DB_PASSWORD:-change_me}
-      DB_NAME: rygell_dashboard
+      DB_USER: ${DB_USER:-rygell}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required for the API database connection}
+      DB_NAME: ${DB_NAME:-rygell_dashboard}
+      DB_SSLMODE: disable
       SERVER_PORT: 8080
       UPLOAD_DIR: /app/uploads
-      JWT_SECRET: ${JWT_SECRET:-change_me}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required and must be at least 32 characters}
       JWT_EXPIRY_HOURS: 24
       COOKIE_NAME: ${COOKIE_NAME:-auth_token}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-Lax}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      ADMIN_NAME: Administrator
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_me}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrator}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required for admin bootstrap}
     ports:
       - "8080:8080"
     volumes:
       - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
 
   rygell-web:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
     container_name: rygell-web
     restart: unless-stopped
     depends_on:
-      - rygell-api
+      rygell-api:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
     ports:
       - "3000:3000"
 

@@ -9,37 +9,38 @@
     "lint": "eslint src eslint.config.mjs --ext .ts,.tsx,.mjs"
   },
   "dependencies": {
-    "@ant-design/icons": "^6.1.0",
+    "@ant-design/icons": "^6.1.1",
     "@refinedev/antd": "^6.0.3",
-    "@refinedev/core": "^5.0.11",
-    "@refinedev/kbar": "^2.0.1",
+    "@refinedev/core": "^5.0.12",
     "@refinedev/nextjs-router": "^7.0.5",
     "@refinedev/simple-rest": "^6.0.1",
-    "antd": "^6.3.4",
-    "axios": "^1.13.6",
+    "antd": "^6.3.6",
+    "axios": "^1.15.2",
     "dayjs": "^1.11.20",
-    "next": "^16.2.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "recharts": "^3.8.0"
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/node": "^20.19.39",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^16.2.1",
-    "postcss": "^8",
+    "eslint-config-next": "^16.2.4",
+    "postcss": "^8.5.12",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   },
   "overrides": {
-    "antd": "^6.3.4",
+    "antd": "^6.3.6",
+    "path-to-regexp": "^8.4.2",
+    "postcss": "^8.5.12",
     "@ant-design/pro-layout": {
-      "antd": "^6.3.4"
+      "antd": "^6.3.6"
     },
     "@refinedev/antd": {
-      "antd": "^6.3.4"
+      "antd": "^6.3.6"
     }
   }
 }

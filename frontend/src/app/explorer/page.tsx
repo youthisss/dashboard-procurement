@@ -18,8 +18,7 @@ import {
   Typography,
   theme,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import type { CheckboxOptionType } from "antd/es/checkbox";
+import type { CheckboxOptionType, TableColumnsType } from "antd";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { useSearchParams } from "next/navigation";
@@ -29,6 +28,7 @@ import {
   SearchOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
+import ContractModeSwitch, { type ContractMode } from "@/components/contracts/ContractModeSwitch";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -76,7 +76,7 @@ type ExplorerRow = {
 type ColumnDefinition = {
   key: string;
   label: string;
-  column: ColumnsType<ExplorerRow>[number];
+  column: TableColumnsType<ExplorerRow>[number];
 };
 
 const formatIDR = (value: number | null) => {
@@ -129,6 +129,7 @@ export default function DataExplorerPage() {
   const [validityRange, setValidityRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [searchText, setSearchText] = useState(searchQuery);
   const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_VISIBLE_COLUMNS);
+  const [contractMode, setContractMode] = useState<ContractMode>("plan");
 
   useEffect(() => {
     setSearchText(searchQuery);
@@ -415,7 +416,7 @@ export default function DataExplorerPage() {
     ];
   }, []);
 
-  const visibleTableColumns = useMemo<ColumnsType<ExplorerRow>>(
+  const visibleTableColumns = useMemo<TableColumnsType<ExplorerRow>>(
     () =>
       allColumnDefinitions
         .filter((columnDef) => visibleColumns.includes(columnDef.key))
@@ -497,20 +498,14 @@ export default function DataExplorerPage() {
   }));
 
   return (
-    <div
-      style={{
-        padding: "32px 40px",
-        maxWidth: 1600,
-        margin: "0 auto",
-        minHeight: "calc(100vh - 64px)",
-      }}
-    >
+    <div className="dashboard-page-wide">
       <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 24 }}>
         <div>
           <Title level={2} style={{ margin: 0, fontWeight: 700 }}>
             Data Explorer
           </Title>
         </div>
+        <ContractModeSwitch value={contractMode} actualEnabled={false} onChange={setContractMode} />
       </Flex>
 
       <Card

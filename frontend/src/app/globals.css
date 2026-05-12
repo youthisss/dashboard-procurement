@@ -5,6 +5,82 @@ body {
   background: var(--background);
 }
 
+:root {
+  --dashboard-page-padding: 32px 40px;
+  --dashboard-page-max-width: 1400px;
+  --dashboard-page-wide-max-width: 1600px;
+  --dashboard-card-radius: 12px;
+  --dashboard-button-radius: 6px;
+  --dashboard-card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --dashboard-header-gap: 32px;
+  --dashboard-section-gap: 24px;
+}
+
+.dashboard-page {
+  padding: var(--dashboard-page-padding);
+  max-width: var(--dashboard-page-max-width);
+  margin: 0 auto;
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-page-form {
+  padding: var(--dashboard-page-padding);
+  max-width: var(--dashboard-page-max-width);
+  margin: 0 auto;
+}
+
+.dashboard-page-full {
+  padding: var(--dashboard-page-padding);
+  max-width: var(--dashboard-page-max-width);
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+.dashboard-page-wide {
+  padding: var(--dashboard-page-padding);
+  max-width: var(--dashboard-page-wide-max-width);
+  margin: 0 auto;
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: var(--dashboard-header-gap);
+}
+
+.dashboard-card {
+  border-radius: var(--dashboard-card-radius) !important;
+  box-shadow: var(--dashboard-card-shadow) !important;
+}
+
+.dashboard-table-card {
+  border-radius: var(--dashboard-card-radius) !important;
+  overflow: hidden;
+  box-shadow: var(--dashboard-card-shadow) !important;
+}
+
+.dashboard-panel-card {
+  border-radius: var(--dashboard-card-radius) !important;
+  border: 1px solid var(--ant-color-border-secondary) !important;
+  box-shadow: var(--ant-box-shadow-tertiary, var(--dashboard-card-shadow)) !important;
+}
+
+.dashboard-action-button {
+  height: 40px !important;
+  padding: 0 20px !important;
+  font-weight: 500 !important;
+  border-radius: var(--dashboard-button-radius) !important;
+}
+
+.dashboard-search-strip {
+  padding: 16px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
 /* Refine Edit Button Overrides (Green Theme) */
 .refine-edit-button:hover,
 .refine-edit-button:focus {

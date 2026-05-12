@@ -1,18 +1,20 @@
 "use client";
 
-import { Upload, Button, Card, Typography, Tag, Alert, Space, Divider, App, Row, Col, Flex, Result } from "antd";
-import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, SaveOutlined } from "@ant-design/icons";
+import { Upload, Button, Card, Typography, Tag, Alert, Space, Divider, App, Row, Col, Flex, Result, Table, Input } from "antd";
+import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, SaveOutlined, TableOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import ContractModeSwitch, { type ContractMode } from "@/components/contracts/ContractModeSwitch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 const { Title, Text } = Typography;
+const PREVIEW_PAGE_SIZE = 5;
 
 interface ParsedSheet {
   sheet_name: string;
   sheet_type: string;
   headers: string[];
-  rows: any[];
+  rows: Record<string, string>[];
 }
 
 interface ImportResponse {
@@ -22,7 +24,12 @@ interface ImportResponse {
   warnings: string[];
 }
 
+type PreviewTableRow = Record<string, string | number> & {
+  __previewRowIndex: number;
+};
+
 export default function ImportWizardPage() {
+  const [contractMode, setContractMode] = useState<ContractMode>("plan");
   const [fileList, setFileList] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResponse | null>(null);
@@ -31,9 +38,23 @@ export default function ImportWizardPage() {
   const [confirmResult, setConfirmResult] = useState<any>(null);
   const { message } = App.useApp();
 
-  const parsedSheets = result?.sheets.filter((s) => s.sheet_type !== "unknown" && s.rows.length > 0) || [];
+  const parsedSheets = result?.sheets
+    .map((sheet, originalIndex) => ({ ...sheet, originalIndex }))
+    .filter((s) => s.sheet_type !== "unknown" && s.rows.length > 0) || [];
+  const isActualMode = contractMode === "actual";
+
+  const handleModeChange = (nextMode: ContractMode) => {
+    setContractMode(nextMode);
+    setResult(null);
+    setConfirmed(false);
+    setConfirmResult(null);
+  };
 
   const handleUpload = async () => {
+    if (isActualMode) {
+      message.warning("Actual contract import is not connected to backend tables yet.");
+      return;
+    }
     if (fileList.length === 0) {
       message.error("Please select an Excel file first.");
       return;
@@ -64,16 +85,29 @@ export default function ImportWizardPage() {
 
   const handleConfirm = async () => {
     if (!result) return;
+    if (isActualMode) {
+      message.warning("Actual contract import is not connected to backend tables yet.");
+      return;
+    }
     setConfirming(true);
     try {
       const response = await apiClient.post(`${API_URL}/import/confirm`, {
         saved_as: result.saved_as,
+        contract_mode: contractMode,
+        sheets: result.sheets,
       });
       message.success("Data saved to database successfully.");
       setConfirmed(true);
       setConfirmResult(response.data.result);
     } catch (error: any) {
-      message.error(error.response?.data?.error || "Confirm import failed");
+      const validationResult = error.response?.data?.result;
+      if (validationResult) {
+        setConfirmed(true);
+        setConfirmResult(validationResult);
+        message.error("Import was not saved. Review the row errors and upload again.");
+      } else {
+        message.error(error.response?.data?.error || "Confirm import failed");
+      }
     } finally {
       setConfirming(false);
     }
@@ -86,29 +120,90 @@ export default function ImportWizardPage() {
     setConfirmResult(null);
   };
 
+  const handlePreviewCellChange = (sheetIndex: number, rowIndex: number, field: string, value: string) => {
+    setResult((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        sheets: current.sheets.map((sheet, currentSheetIndex) => {
+          if (currentSheetIndex !== sheetIndex) return sheet;
+          return {
+            ...sheet,
+            rows: sheet.rows.map((row, currentRowIndex) => {
+              if (currentRowIndex !== rowIndex) return row;
+              return {
+                ...row,
+                [field]: value,
+              };
+            }),
+          };
+        }),
+      };
+    });
+  };
+
+  const buildPreviewRows = (rows: Record<string, string>[]): PreviewTableRow[] =>
+    rows.map((row, rowIndex) => ({
+      ...row,
+      __previewRowIndex: rowIndex,
+    }));
+
+  const buildPreviewColumns = (headers: string[], sheetIndex: number) => {
+    return headers
+      .filter((header) => header.trim() !== "")
+      .map((header) => ({
+        title: header,
+        dataIndex: header,
+        key: header,
+        width: 180,
+        render: (value: string | number | undefined, record: PreviewTableRow) => (
+          <Input
+            size="small"
+            value={value == null ? "" : String(value)}
+            onChange={(event) => handlePreviewCellChange(sheetIndex, record.__previewRowIndex, header, event.target.value)}
+            style={{ minWidth: 140 }}
+          />
+        ),
+      }));
+  };
+
   return (
-    <div style={{ padding: "32px 40px", maxWidth: 1400, margin: "0 auto", minHeight: "calc(100vh - 64px)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 }}>
+    <div className="dashboard-page">
+      <div className="dashboard-page-header">
         <div>
           <Title level={2} style={{ margin: "0 0 8px 0", fontWeight: 700 }}>
             Data Import Wizard
           </Title>
         </div>
+        <ContractModeSwitch value={contractMode} onChange={handleModeChange} />
       </div>
 
       <Card
         title={<Space><FileExcelOutlined /> Upload Excel Template</Space>}
+        extra={<Tag color={isActualMode ? "warning" : "processing"}>{isActualMode ? "Actual Contract" : "Plan Contract"}</Tag>}
         variant="borderless"
-        style={{ borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}
+        className="dashboard-card"
       >
+        {isActualMode && (
+          <Alert
+            title="Actual contract import is not available yet"
+            description="The current backend import service writes only plan contract data. Switch to Plan Contract to upload and save the file now."
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16, borderRadius: 8 }}
+          />
+        )}
         <div style={{ marginBottom: 24 }}>
           <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
-            Upload your Excel template containing the latest procurement pricing. The system will detect sheet types
+            Upload your Excel template containing the latest {isActualMode ? "actual" : "plan"} procurement pricing. The system will detect sheet types
             (Dedicated Fix, Dedicated Var, Oncall) and parse them into the required structure.
           </Text>
           <Upload
             beforeUpload={(file) => {
               setFileList([file]);
+              setResult(null);
+              setConfirmed(false);
+              setConfirmResult(null);
               return false;
             }}
             fileList={fileList}
@@ -127,11 +222,12 @@ export default function ImportWizardPage() {
 
         <Button
           onClick={handleUpload}
-          disabled={fileList.length === 0}
+          disabled={fileList.length === 0 || isActualMode}
           loading={uploading}
           type="primary"
           size="large"
-          style={{ width: "100%", borderRadius: "6px" }}
+          className="dashboard-action-button"
+          style={{ width: "100%" }}
         >
           {uploading ? "Parsing document..." : "Upload & Parse Data"}
         </Button>
@@ -140,7 +236,8 @@ export default function ImportWizardPage() {
       {result && (
         <Card
           variant="borderless"
-          style={{ marginTop: 24, borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}
+          className="dashboard-card"
+          style={{ marginTop: 24 }}
         >
           <Space direction="vertical" size={6} style={{ width: "100%" }}>
             <Title level={4} style={{ margin: 0 }}>Import Status Report</Title>
@@ -167,7 +264,7 @@ export default function ImportWizardPage() {
 
           <div style={{ marginTop: 16 }}>
             {parsedSheets.length === 0 ? (
-              <Alert message="No recognizable data rows found in the sheets." type="info" showIcon />
+              <Alert title="No recognizable data rows found in the sheets." type="info" showIcon />
             ) : (
               <>
                 <Row gutter={[16, 16]}>
@@ -195,6 +292,51 @@ export default function ImportWizardPage() {
                   ))}
                 </Row>
 
+                <Divider style={{ marginTop: 24 }}>
+                  <Space>
+                    <TableOutlined />
+                    Editable Preview Data
+                  </Space>
+                </Divider>
+                <Alert
+                  message="Review and edit parsed rows before saving"
+                  description="Changes made in the preview table are sent to the import confirmation step and become the data saved to the plan contract tables."
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16, borderRadius: 8 }}
+                />
+
+                <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                  {parsedSheets.map((sheet, index) => (
+                    <Card
+                      key={`${sheet.sheet_name}-${index}`}
+                      size="small"
+                      title={
+                        <Space wrap>
+                          <Text strong>{sheet.sheet_name}</Text>
+                          <Tag color="processing">{sheet.sheet_type.replace("_", " ").toUpperCase()}</Tag>
+                          <Text type="secondary">{sheet.rows.length} rows</Text>
+                        </Space>
+                      }
+                      style={{ borderRadius: 8, border: "1px solid var(--ant-color-border-secondary)", boxShadow: "none" }}
+                    >
+                      <Table
+                        rowKey={(record) => `${sheet.sheet_name}-${record.__previewRowIndex}`}
+                        size="small"
+                        columns={buildPreviewColumns(sheet.headers, sheet.originalIndex)}
+                        dataSource={buildPreviewRows(sheet.rows)}
+                        scroll={{ x: "max-content" }}
+                        pagination={{
+                          pageSize: PREVIEW_PAGE_SIZE,
+                          placement: ["bottomEnd"],
+                          showSizeChanger: false,
+                          showTotal: (total) => `${total} rows`,
+                        }}
+                      />
+                    </Card>
+                  ))}
+                </Space>
+
                 {!confirmed ? (
                   <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
                     <Button
@@ -213,17 +355,17 @@ export default function ImportWizardPage() {
                   </div>
                 ) : (
                   <Result
-                    status={confirmResult?.errors?.length > 0 ? "warning" : "success"}
-                    title={confirmResult?.errors?.length > 0 ? "Import completed with warnings" : "Data imported successfully"}
+                    status={confirmResult?.errors?.length > 0 ? "error" : "success"}
+                    title={confirmResult?.errors?.length > 0 ? "Import not saved" : "Data imported successfully"}
                     subTitle={
                       confirmResult ? (
                         <div>
-                          <Text>Dedicated Fix: <strong>{confirmResult.dedicated_fix_inserted}</strong> rows</Text><br />
-                          <Text>Dedicated Var: <strong>{confirmResult.dedicated_var_inserted}</strong> rows</Text><br />
-                          <Text>Oncall: <strong>{confirmResult.oncall_inserted}</strong> rows</Text>
+                          <Text>Dedicated Fix: <strong>{confirmResult.dedicated_fix_inserted}</strong> inserted, <strong>{confirmResult.dedicated_fix_skipped_duplicates || 0}</strong> skipped</Text><br />
+                          <Text>Dedicated Var: <strong>{confirmResult.dedicated_var_inserted}</strong> inserted, <strong>{confirmResult.dedicated_var_skipped_duplicates || 0}</strong> skipped</Text><br />
+                          <Text>Oncall: <strong>{confirmResult.oncall_inserted}</strong> inserted, <strong>{confirmResult.oncall_skipped_duplicates || 0}</strong> skipped</Text>
                           {confirmResult.errors?.length > 0 && (
                             <Alert
-                              message={`${confirmResult.errors.length} error(s) during import`}
+                              message={`${confirmResult.errors.length} row error(s); transaction rolled back`}
                               description={
                                 <div style={{ maxHeight: 200, overflow: "auto" }}>
                                   {confirmResult.errors.map((e: string, i: number) => (

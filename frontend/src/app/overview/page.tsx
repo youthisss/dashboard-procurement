@@ -153,14 +153,14 @@ export default function DashboardOverview() {
   // 2. Trend Data (Memastikan seluruh 12 bulan selalu ada di X-Axis)
   const trendData = useMemo(() => {
     const monthsOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthCounts: Record<string, { dedicated: number, oncall: number }> = {};
+    const monthCounts: Record<string, { plan: number, actual: number }> = {};
 
     // Inisialisasi semua bulan dengan nilai 0 agar X-Axis tidak terpotong
     monthsOrder.forEach(m => {
-      monthCounts[m] = { dedicated: 0, oncall: 0 };
+      monthCounts[m] = { plan: 0, actual: 0 };
     });
 
-    const processMonth = (c: any, type: 'dedicated' | 'oncall') => {
+    const processMonth = (c: any, type: 'plan' | 'actual') => {
       const dateVal = c.validity_start || c.created_at;
       if (!dateVal) return;
       const monthStr = new Date(dateVal).toLocaleString('en-US', { month: 'short' });
@@ -171,15 +171,15 @@ export default function DashboardOverview() {
       }
     };
 
-    fixContracts.forEach(c => processMonth(c, 'dedicated'));
-    varContracts.forEach(c => processMonth(c, 'dedicated'));
-    oncallContracts.forEach(c => processMonth(c, 'oncall'));
+    fixContracts.forEach(c => processMonth(c, 'plan'));
+    varContracts.forEach(c => processMonth(c, 'plan'));
+    oncallContracts.forEach(c => processMonth(c, 'plan'));
 
     // Map kembali ke bentuk array berurutan sesuai monthsOrder
     return monthsOrder.map(m => ({
       month: m,
-      dedicated: monthCounts[m].dedicated,
-      oncall: monthCounts[m].oncall
+      plan: monthCounts[m].plan,
+      actual: monthCounts[m].actual
     }));
   }, [fixContracts, varContracts, oncallContracts]);
 
@@ -303,7 +303,7 @@ export default function DashboardOverview() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1600, margin: "0 auto", minHeight: 'calc(100vh - 64px)' }}>
+    <div className="dashboard-page-wide">
       {/* Header */}
       <Flex justify="space-between" align="center" style={{ marginBottom: 32 }}>
         <div>
@@ -319,7 +319,7 @@ export default function DashboardOverview() {
       {/* KPI Cards */}
       <Row gutter={[24, 24]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card styles={{ body: { padding: '24px' } }} style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}>
+          <Card className="dashboard-panel-card" styles={{ body: { padding: '24px' } }} style={{ height: '100%' }}>
             <Flex justify="space-between" align="center" style={{ marginBottom: 16, minHeight: KPI_HEADER_MIN_HEIGHT }}>
               <Text strong style={{ fontSize: '15px' }}>Total Landed Cost</Text>
               <div style={{ width: KPI_ICON_BOX_SIZE, height: KPI_ICON_BOX_SIZE, backgroundColor: token.colorPrimaryBg, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -332,7 +332,7 @@ export default function DashboardOverview() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card styles={{ body: { padding: '24px' } }} style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}>
+          <Card className="dashboard-panel-card" styles={{ body: { padding: '24px' } }} style={{ height: '100%' }}>
             <Flex justify="space-between" align="center" style={{ marginBottom: 16, minHeight: KPI_HEADER_MIN_HEIGHT }}>
               <Text strong style={{ fontSize: '15px' }}>Avg. Running Cost</Text>
               <div style={{ width: KPI_ICON_BOX_SIZE, height: KPI_ICON_BOX_SIZE, backgroundColor: token.colorSuccessBg, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -345,7 +345,7 @@ export default function DashboardOverview() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card styles={{ body: { padding: '24px' } }} style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}>
+          <Card className="dashboard-panel-card" styles={{ body: { padding: '24px' } }} style={{ height: '100%' }}>
             <Flex justify="space-between" align="center" style={{ marginBottom: 16, minHeight: KPI_HEADER_MIN_HEIGHT }}>
               <Text strong style={{ fontSize: '15px' }}>Expiring Contracts</Text>
               <div style={{ width: KPI_ICON_BOX_SIZE, height: KPI_ICON_BOX_SIZE, backgroundColor: token.colorWarningBg, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -360,7 +360,7 @@ export default function DashboardOverview() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card styles={{ body: { padding: '24px' } }} style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}>
+          <Card className="dashboard-panel-card" styles={{ body: { padding: '24px' } }} style={{ height: '100%' }}>
             <Flex justify="space-between" align="center" style={{ marginBottom: 16, minHeight: KPI_HEADER_MIN_HEIGHT }}>
               <Text strong style={{ fontSize: '15px' }}>Registered Vendors</Text>
               <div style={{ width: KPI_ICON_BOX_SIZE, height: KPI_ICON_BOX_SIZE, backgroundColor: token.colorInfoBg, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -379,9 +379,10 @@ export default function DashboardOverview() {
       <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
         <Col xs={24} lg={16}>
           <Card
-            title={<span><BarChartOutlined style={{ marginRight: 8, color: token.colorPrimary }} />Logistics Cost Trend (Dedicated vs Oncall)</span>}
+            title={<span><BarChartOutlined style={{ marginRight: 8, color: token.colorPrimary }} />Contract Cost Trend (Plan vs Actual)</span>}
             styles={{ body: { padding: '24px', height: '340px' }, header: cardHeaderStyle }}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
           >
             <div style={{ width: "100%", minWidth: 0, minHeight: 300 }}>
               <ResponsiveContainer width="100%" height={300}>
@@ -425,17 +426,17 @@ export default function DashboardOverview() {
                     wrapperStyle={{ fontSize: "12px", paddingTop: "15px", color: token.colorText }}
                   />
                   <Bar
-                    dataKey="dedicated"
+                    dataKey="plan"
                     fill={token.colorPrimary}
                     radius={[4, 4, 0, 0]}
-                    name="Dedicated Cost"
+                    name="Plan Contract"
                     maxBarSize={40}
                   />
                   <Bar
-                    dataKey="oncall"
+                    dataKey="actual"
                     fill={token.colorSuccess}
                     radius={[4, 4, 0, 0]}
-                    name="Oncall Spot"
+                    name="Actual Contract"
                     maxBarSize={40}
                   />
                 </BarChart>
@@ -448,7 +449,8 @@ export default function DashboardOverview() {
           <Card
             title={<span><PieChartOutlined style={{ marginRight: 8, color: token.colorWarning }} />Active Contract Proportions</span>}
             styles={{ body: { padding: '24px', height: '340px' }, header: cardHeaderStyle }}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
           >
             <div style={{ width: "100%", minWidth: 0, minHeight: 210 }}>
               <ResponsiveContainer width="100%" height={210}>
@@ -508,7 +510,8 @@ export default function DashboardOverview() {
               />
             }
             styles={{ body: { padding: '24px', height: '360px' }, header: cardHeaderStyle }}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
           >
             <div style={{ width: "100%", minWidth: 0, minHeight: 300 }}>
               <ResponsiveContainer width="100%" height={300}>
@@ -546,7 +549,8 @@ export default function DashboardOverview() {
           <Card
             title={<span><PieChartOutlined style={{ marginRight: 8, color: token.colorSuccess }} />MoT Distribution</span>}
             styles={{ body: { padding: '24px', height: '360px' }, header: cardHeaderStyle }}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
           >
             <div style={{ width: "100%", minWidth: 0, minHeight: 210 }}>
               <ResponsiveContainer width="100%" height={210}>
@@ -593,7 +597,8 @@ export default function DashboardOverview() {
         <Col xs={24} lg={12}>
           <Card
             title={<span><HistoryOutlined style={{ marginRight: 8, color: token.colorPrimary }} />Latest Agreements</span>}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
             styles={{ body: { padding: '0 24px 24px 24px' }, header: { borderBottom: 'none', paddingTop: 16 } }}
           >
             <Flex vertical gap={0} style={{ maxHeight: 330, overflowY: 'auto', paddingRight: 8 }}>
@@ -629,7 +634,8 @@ export default function DashboardOverview() {
         <Col xs={24} lg={12}>
           <Card
             title={<span><AlertOutlined style={{ marginRight: 8, color: token.colorWarning }} />Expiring Contracts</span>}
-            style={{ borderRadius: '12px', height: '100%', border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            className="dashboard-panel-card"
+            style={{ height: '100%' }}
             styles={{ body: { padding: '0 24px 24px 24px' }, header: { borderBottom: 'none', paddingTop: 16 } }}
           >
             <Flex vertical gap={12} style={{ maxHeight: 300, overflowY: 'auto', paddingRight: 8 }}>

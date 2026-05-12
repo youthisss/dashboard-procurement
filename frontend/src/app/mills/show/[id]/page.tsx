@@ -14,7 +14,8 @@ import {
   TeamOutlined,
   HistoryOutlined,
   SolutionOutlined,
-  NodeIndexOutlined
+  NodeIndexOutlined,
+  AimOutlined,
 } from "@ant-design/icons";
 import { App, Form, Input, Divider, Timeline } from "antd";
 import { apiClient } from "@/lib/api-client";
@@ -103,6 +104,32 @@ export default function MillShow() {
   const totalSpend = allContracts.reduce((acc, curr: any) => acc + (Number(curr.cost_idr) || Number(curr.distributed_cost) || 0), 0);
   const activeVendors = Array.from(new Set(allContracts.map(c => c.vendor_id))).length;
   const dedicatedFleet = fixContracts.length + varContracts.length;
+  const coveredZones = React.useMemo(() => {
+    const zones = new Map<string, { id?: string | number; name: string; roles: Set<string>; routeCount: number }>();
+    const routeContracts = [...varContracts, ...oncallContracts];
+
+    const addZone = (zone: any, role: "Origin" | "Destination") => {
+      const name = zone?.name || zone?.code;
+      if (!name) return;
+      const key = String(zone?.id ?? name);
+      const existing = zones.get(key) || {
+        id: zone?.id,
+        name,
+        roles: new Set<string>(),
+        routeCount: 0,
+      };
+      existing.roles.add(role);
+      existing.routeCount += 1;
+      zones.set(key, existing);
+    };
+
+    routeContracts.forEach((contract: any) => {
+      addZone(contract.origin_zone, "Origin");
+      addZone(contract.dest_zone, "Destination");
+    });
+
+    return Array.from(zones.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [varContracts, oncallContracts]);
 
   const commonColumns = [
     { title: "SPK", dataIndex: "spk_number", key: "spk", render: (v: any) => <Text strong>{v || "-"}</Text> },
@@ -123,7 +150,7 @@ export default function MillShow() {
   if (isLoading) return <div style={{ height: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AppSpinner text="Loading mill details..." /></div>;
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto", minHeight: '100vh' }}>
+    <div className="dashboard-page-full">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
 
       {/* Header */}
@@ -182,24 +209,44 @@ export default function MillShow() {
               <Descriptions.Item label="Mill Code"><Text strong>{record?.code}</Text></Descriptions.Item>
               <Descriptions.Item label="Mill Name">{record?.name}</Descriptions.Item>
             </Descriptions>
+          </Card>
 
-            <Divider style={{ borderColor: token.colorSplit }} />
-            <Title level={5}>Active Route Distribution</Title>
+          <Card
+            styles={{ body: { padding: '24px' } }}
+            style={{ marginTop: 24, borderRadius: 12, border: `1px solid ${token.colorBorderSecondary}`, boxShadow: token.boxShadowTertiary }}
+            title={<span><AimOutlined style={{ marginRight: 8, color: token.colorPrimary }} /> Zones Covered</span>}
+          >
+            <Flex justify="space-between" align="center" style={{ marginBottom: 16 }}>
+              <Text type="secondary">Coverage from active route contracts</Text>
+              <Tag color="blue" variant="filled">{coveredZones.length} zones</Tag>
+            </Flex>
             <Flex
               vertical
               gap={12}
               style={{
-                maxHeight: oncallContracts.length > 5 ? 220 : "none",
-                overflowY: oncallContracts.length > 5 ? "auto" : "visible",
-                paddingRight: oncallContracts.length > 5 ? 4 : 0,
+                maxHeight: coveredZones.length > 6 ? 280 : "none",
+                overflowY: coveredZones.length > 6 ? "auto" : "visible",
+                paddingRight: coveredZones.length > 6 ? 4 : 0,
               }}
             >
-              {oncallContracts.slice(0, 5).map((r: any) => (
-                <div key={r.id} style={{ padding: '8px 12px', backgroundColor: token.colorFillAlter, borderRadius: 8 }}>
-                  <Text style={{ fontSize: 12 }}>{r.origin_zone?.name} <ArrowRightOutlined style={{ fontSize: 10, color: token.colorTextSecondary }} /> {r.dest_zone?.name}</Text>
+              {coveredZones.map((zone) => (
+                <div key={String(zone.id ?? zone.name)} style={{ padding: '10px 12px', backgroundColor: token.colorFillAlter, borderRadius: 8 }}>
+                  <Flex justify="space-between" align="center" gap={10}>
+                    <Text strong style={{ fontSize: 13 }}>{zone.name}</Text>
+                    <Space size={4} wrap>
+                      {Array.from(zone.roles).map((role) => (
+                        <Tag key={role} color={role === "Origin" ? "green" : "orange"} style={{ marginInlineEnd: 0 }}>
+                          {role}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </Flex>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {zone.routeCount} route references connected to this mill
+                  </Text>
                 </div>
               ))}
-              {oncallContracts.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No route data" />}
+              {coveredZones.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No zone coverage data" />}
             </Flex>
           </Card>
         </Col>

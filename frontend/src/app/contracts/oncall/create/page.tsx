@@ -5,6 +5,7 @@ import { Breadcrumb, ListButton, SaveButton } from "@refinedev/antd";
 import { Form, Input, Select, InputNumber, DatePicker, Row, Col, Typography, Space, Card, Divider } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import ContractModeSwitch from "@/components/contracts/ContractModeSwitch";
 
 export default function OncallCreate() {
   const { formProps, saveButtonProps } = useForm();
@@ -43,17 +44,18 @@ export default function OncallCreate() {
   };
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: "0 auto" }}>
+    <div className="dashboard-page-form">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <Space>
           <ListButton icon={<ArrowLeftOutlined />} shape="circle" type="text" hideText />
           <Typography.Title level={2} style={{ margin: 0, fontWeight: 700 }}>Create Oncall Routing</Typography.Title>
         </Space>
+        <ContractModeSwitch />
       </div>
 
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
-        <Card variant="borderless" style={{ borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+        <Card variant="borderless" className="dashboard-card">
             <Form {...formProps} onFinish={handleOnFinish} layout="vertical">
               
               <Divider titlePlacement="start">General Information</Divider>

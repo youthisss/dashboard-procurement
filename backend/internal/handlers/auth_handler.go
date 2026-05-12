@@ -16,10 +16,11 @@ import (
 type AuthHandler struct {
 	userService *services.UserService
 	cfg         *config.Config
+	limiter     *loginLimiter
 }
 
 func NewAuthHandler(userService *services.UserService, cfg *config.Config) *AuthHandler {
-	return &AuthHandler{userService: userService, cfg: cfg}
+	return &AuthHandler{userService: userService, cfg: cfg, limiter: newLoginLimiter()}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -29,20 +30,24 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, user, err := h.userService.Login(input.Username, input.Password)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+	clientIP := c.ClientIP()
+	if h.limiter.locked(clientIP, input.Username) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "invalid username or password"})
 		return
 	}
+
+	token, user, err := h.userService.Login(input.Username, input.Password)
+	if err != nil {
+		h.limiter.recordFailure(clientIP, input.Username)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
+		return
+	}
+	h.limiter.reset(clientIP, input.Username)
 
 	h.setAuthCookie(c, token)
 
 	c.JSON(http.StatusOK, gin.H{
-		"user": gin.H{
-			"id":       user.ID,
-			"name":     user.Name,
-			"username": user.Username,
-		},
+		"user": h.userPayload(user),
 	})
 }
 
@@ -70,23 +75,11 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":       user.ID,
-		"name":     user.Name,
-		"username": user.Username,
-	})
+	c.JSON(http.StatusOK, h.userPayload(user))
 }
 
 func (h *AuthHandler) CreateUser(c *gin.Context) {
-	usernameAny, ok := c.Get("username")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	username, ok := usernameAny.(string)
-	if !ok || username != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+	if !h.requireAdmin(c) {
 		return
 	}
 
@@ -110,15 +103,7 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 }
 
 func (h *AuthHandler) ListUsers(c *gin.Context) {
-	usernameAny, ok := c.Get("username")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	username, ok := usernameAny.(string)
-	if !ok || username != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+	if !h.requireAdmin(c) {
 		return
 	}
 
@@ -132,15 +117,7 @@ func (h *AuthHandler) ListUsers(c *gin.Context) {
 }
 
 func (h *AuthHandler) DeleteUser(c *gin.Context) {
-	usernameAny, ok := c.Get("username")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	username, ok := usernameAny.(string)
-	if !ok || username != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+	if !h.requireAdmin(c) {
 		return
 	}
 
@@ -169,15 +146,7 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 }
 
 func (h *AuthHandler) UpdateUserPassword(c *gin.Context) {
-	usernameAny, ok := c.Get("username")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	username, ok := usernameAny.(string)
-	if !ok || username != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+	if !h.requireAdmin(c) {
 		return
 	}
 
@@ -200,6 +169,46 @@ func (h *AuthHandler) UpdateUserPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "password updated"})
+}
+
+func (h *AuthHandler) requireAdmin(c *gin.Context) bool {
+	usernameAny, ok := c.Get("username")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return false
+	}
+
+	username, ok := usernameAny.(string)
+	if !ok || strings.TrimSpace(username) != h.adminUsername() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+		return false
+	}
+
+	return true
+}
+
+func (h *AuthHandler) adminUsername() string {
+	if h == nil || h.cfg == nil {
+		return "admin"
+	}
+	username := strings.TrimSpace(h.cfg.AdminUsername)
+	if username == "" {
+		return "admin"
+	}
+	return username
+}
+
+func (h *AuthHandler) userPayload(user *models.User) gin.H {
+	username := ""
+	if user != nil {
+		username = strings.TrimSpace(user.Username)
+	}
+	return gin.H{
+		"id":       user.ID,
+		"name":     user.Name,
+		"username": user.Username,
+		"is_admin": username == h.adminUsername(),
+	}
 }
 
 func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {

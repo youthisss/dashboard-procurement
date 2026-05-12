@@ -43,7 +43,7 @@ export default function AdminUsersPage() {
       router.replace("/login");
       return;
     }
-    if (authUser.username !== "admin") {
+    if (!authUser.is_admin) {
       router.replace("/overview");
       return;
     }
@@ -124,7 +124,7 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div style={{ padding: "32px 40px", maxWidth: 1400, margin: "0 auto", minHeight: "calc(100vh - 64px)" }}>
+    <div className="dashboard-page">
       <div style={{ marginBottom: 16 }}>
         <Breadcrumb />
       </div>
@@ -138,11 +138,7 @@ export default function AdminUsersPage() {
 
         <Card
           variant="borderless"
-          style={{
-            borderRadius: "12px",
-            overflow: "hidden",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-          }}
+          className="dashboard-table-card"
         >
           <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
             <Form.Item label="Full Name" name="name" rules={[{ required: true, message: "Please input name" }]}>
@@ -169,11 +165,7 @@ export default function AdminUsersPage() {
 
         <Card
           variant="borderless"
-          style={{
-            borderRadius: "12px",
-            overflow: "hidden",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-          }}
+          className="dashboard-table-card"
         >
           <Table
             rowKey="id"

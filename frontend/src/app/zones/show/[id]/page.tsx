@@ -22,7 +22,7 @@ export default function ZoneShow() {
   }
 
   return (
-    <div style={{ padding: "32px 40px", maxWidth: 1400, margin: "0 auto", minHeight: "100vh" }}>
+    <div className="dashboard-page-full">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <Space size="middle">

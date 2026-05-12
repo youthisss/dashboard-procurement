@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"rygell-dashboard/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // paginateAndRespond is a helper that handles simple-rest compatible pagination.
@@ -45,6 +47,14 @@ func paginateAndRespond[T any](c *gin.Context, data []T) {
 	_ = sortOrder
 
 	c.JSON(http.StatusOK, data[start:end])
+}
+
+func respondMasterDataError(c *gin.Context, err error, notFoundMessage string) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": notFoundMessage})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }
 
 // MasterHandler handles HTTP requests for master data.
@@ -109,7 +119,7 @@ func (h *MasterHandler) UpdateMill(c *gin.Context) {
 	}
 	mill.ID = uint(id)
 	if err := h.service.UpdateMill(&mill); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "mill not found")
 		return
 	}
 	c.JSON(http.StatusOK, mill)
@@ -122,7 +132,7 @@ func (h *MasterHandler) DeleteMill(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteMill(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "mill not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -180,7 +190,7 @@ func (h *MasterHandler) UpdateVendor(c *gin.Context) {
 	}
 	vendor.ID = uint(id)
 	if err := h.service.UpdateVendor(&vendor); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "vendor not found")
 		return
 	}
 	c.JSON(http.StatusOK, vendor)
@@ -193,7 +203,7 @@ func (h *MasterHandler) DeleteVendor(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteVendor(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "vendor not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -251,7 +261,7 @@ func (h *MasterHandler) UpdateProduct(c *gin.Context) {
 	}
 	product.ID = uint(id)
 	if err := h.service.UpdateProduct(&product); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "product not found")
 		return
 	}
 	c.JSON(http.StatusOK, product)
@@ -264,7 +274,7 @@ func (h *MasterHandler) DeleteProduct(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteProduct(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "product not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -322,7 +332,7 @@ func (h *MasterHandler) UpdateZone(c *gin.Context) {
 	}
 	zone.ID = uint(id)
 	if err := h.service.UpdateZone(&zone); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "zone not found")
 		return
 	}
 	c.JSON(http.StatusOK, zone)
@@ -335,7 +345,7 @@ func (h *MasterHandler) DeleteZone(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteZone(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "zone not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -344,7 +354,8 @@ func (h *MasterHandler) DeleteZone(c *gin.Context) {
 // --- MOT ---
 
 func (h *MasterHandler) GetAllMots(c *gin.Context) {
-	mots, err := h.service.GetAllMots()
+	search := c.Query("q")
+	mots, err := h.service.GetAllMots(search)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -392,7 +403,7 @@ func (h *MasterHandler) UpdateMot(c *gin.Context) {
 	}
 	mot.ID = uint(id)
 	if err := h.service.UpdateMot(&mot); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "mot not found")
 		return
 	}
 	c.JSON(http.StatusOK, mot)
@@ -405,7 +416,7 @@ func (h *MasterHandler) DeleteMot(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteMot(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "mot not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -414,7 +425,8 @@ func (h *MasterHandler) DeleteMot(c *gin.Context) {
 // --- UOM ---
 
 func (h *MasterHandler) GetAllUoms(c *gin.Context) {
-	uoms, err := h.service.GetAllUoms()
+	search := c.Query("q")
+	uoms, err := h.service.GetAllUoms(search)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -462,7 +474,7 @@ func (h *MasterHandler) UpdateUom(c *gin.Context) {
 	}
 	uom.ID = uint(id)
 	if err := h.service.UpdateUom(&uom); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "uom not found")
 		return
 	}
 	c.JSON(http.StatusOK, uom)
@@ -475,7 +487,7 @@ func (h *MasterHandler) DeleteUom(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteUom(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondMasterDataError(c, err, "uom not found")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})

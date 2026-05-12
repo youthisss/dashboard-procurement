@@ -1,7 +1,11 @@
 package repositories
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"rygell-dashboard/internal/models"
+	"strings"
+	"unicode"
 
 	"gorm.io/gorm"
 )
@@ -14,6 +18,30 @@ type MasterRepository struct {
 // NewMasterRepository creates a new MasterRepository.
 func NewMasterRepository(db *gorm.DB) *MasterRepository {
 	return &MasterRepository{db: db}
+}
+
+// DB exposes the current GORM handle for services that need to create
+// transaction-scoped repositories.
+func (r *MasterRepository) DB() *gorm.DB {
+	return r.db
+}
+
+func updateExisting(db *gorm.DB, model interface{}, id uint, columns []string, values interface{}) error {
+	if err := db.First(model, id).Error; err != nil {
+		return err
+	}
+	return db.Model(model).Select(columns).Updates(values).Error
+}
+
+func deleteExisting(db *gorm.DB, model interface{}, id uint) error {
+	result := db.Delete(model, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // --- Mill ---
@@ -52,11 +80,11 @@ func (r *MasterRepository) CreateMill(mill *models.Mill) error {
 }
 
 func (r *MasterRepository) UpdateMill(mill *models.Mill) error {
-	return r.db.Save(mill).Error
+	return updateExisting(r.db, &models.Mill{}, mill.ID, []string{"code", "name"}, mill)
 }
 
 func (r *MasterRepository) DeleteMill(id uint) error {
-	return r.db.Delete(&models.Mill{}, id).Error
+	return deleteExisting(r.db, &models.Mill{}, id)
 }
 
 // --- Vendor ---
@@ -95,11 +123,17 @@ func (r *MasterRepository) CreateVendor(vendor *models.Vendor) error {
 }
 
 func (r *MasterRepository) UpdateVendor(vendor *models.Vendor) error {
-	return r.db.Save(vendor).Error
+	return updateExisting(
+		r.db,
+		&models.Vendor{},
+		vendor.ID,
+		[]string{"code", "name", "tax_id", "status", "address", "contact_person", "email", "phone"},
+		vendor,
+	)
 }
 
 func (r *MasterRepository) DeleteVendor(id uint) error {
-	return r.db.Delete(&models.Vendor{}, id).Error
+	return deleteExisting(r.db, &models.Vendor{}, id)
 }
 
 // --- Product ---
@@ -126,11 +160,11 @@ func (r *MasterRepository) CreateProduct(product *models.Product) error {
 }
 
 func (r *MasterRepository) UpdateProduct(product *models.Product) error {
-	return r.db.Save(product).Error
+	return updateExisting(r.db, &models.Product{}, product.ID, []string{"name"}, product)
 }
 
 func (r *MasterRepository) DeleteProduct(id uint) error {
-	return r.db.Delete(&models.Product{}, id).Error
+	return deleteExisting(r.db, &models.Product{}, id)
 }
 
 // --- Zone ---
@@ -169,18 +203,23 @@ func (r *MasterRepository) CreateZone(zone *models.Zone) error {
 }
 
 func (r *MasterRepository) UpdateZone(zone *models.Zone) error {
-	return r.db.Save(zone).Error
+	return updateExisting(r.db, &models.Zone{}, zone.ID, []string{"name", "type"}, zone)
 }
 
 func (r *MasterRepository) DeleteZone(id uint) error {
-	return r.db.Delete(&models.Zone{}, id).Error
+	return deleteExisting(r.db, &models.Zone{}, id)
 }
 
 // --- MOT ---
 
-func (r *MasterRepository) GetAllMots() ([]models.Mot, error) {
+func (r *MasterRepository) GetAllMots(search string) ([]models.Mot, error) {
 	var mots []models.Mot
-	err := r.db.Find(&mots).Error
+	query := r.db
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where("name ILIKE ?", like)
+	}
+	err := query.Order("id ASC").Find(&mots).Error
 	return mots, err
 }
 
@@ -195,18 +234,23 @@ func (r *MasterRepository) CreateMot(mot *models.Mot) error {
 }
 
 func (r *MasterRepository) UpdateMot(mot *models.Mot) error {
-	return r.db.Save(mot).Error
+	return updateExisting(r.db, &models.Mot{}, mot.ID, []string{"name"}, mot)
 }
 
 func (r *MasterRepository) DeleteMot(id uint) error {
-	return r.db.Delete(&models.Mot{}, id).Error
+	return deleteExisting(r.db, &models.Mot{}, id)
 }
 
 // --- UOM ---
 
-func (r *MasterRepository) GetAllUoms() ([]models.Uom, error) {
+func (r *MasterRepository) GetAllUoms(search string) ([]models.Uom, error) {
 	var uoms []models.Uom
-	err := r.db.Find(&uoms).Error
+	query := r.db
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where("name ILIKE ?", like)
+	}
+	err := query.Order("id ASC").Find(&uoms).Error
 	return uoms, err
 }
 
@@ -221,11 +265,11 @@ func (r *MasterRepository) CreateUom(uom *models.Uom) error {
 }
 
 func (r *MasterRepository) UpdateUom(uom *models.Uom) error {
-	return r.db.Save(uom).Error
+	return updateExisting(r.db, &models.Uom{}, uom.ID, []string{"name"}, uom)
 }
 
 func (r *MasterRepository) DeleteUom(id uint) error {
-	return r.db.Delete(&models.Uom{}, id).Error
+	return deleteExisting(r.db, &models.Uom{}, id)
 }
 
 // --- Bulk Operations ---
@@ -255,7 +299,7 @@ func (r *MasterRepository) FindOrCreateVendorByName(name string) (*models.Vendor
 	if err == nil {
 		return &vendor, nil
 	}
-	vendor = models.Vendor{Name: name, Code: name}
+	vendor = models.Vendor{Name: name, Code: importCodeFromName("V", name)}
 	if err := r.db.Create(&vendor).Error; err != nil {
 		return nil, err
 	}
@@ -269,7 +313,7 @@ func (r *MasterRepository) FindOrCreateMillByName(name string) (*models.Mill, er
 	if err == nil {
 		return &mill, nil
 	}
-	mill = models.Mill{Name: name, Code: name}
+	mill = models.Mill{Name: name, Code: importCodeFromName("M", name)}
 	if err := r.db.Create(&mill).Error; err != nil {
 		return nil, err
 	}
@@ -330,4 +374,53 @@ func (r *MasterRepository) FindOrCreateUomByName(name string) (*models.Uom, erro
 		return nil, err
 	}
 	return &uom, nil
+}
+
+func importCodeFromName(prefix, name string) string {
+	const maxCodeLength = 50
+
+	prefix = strings.ToUpper(strings.TrimSpace(prefix))
+	if prefix == "" {
+		prefix = "X"
+	}
+
+	base := normalizeCodeBase(name)
+	if base == "" {
+		base = "ITEM"
+	}
+
+	sum := sha1.Sum([]byte(strings.ToLower(strings.TrimSpace(name))))
+	suffix := strings.ToUpper(hex.EncodeToString(sum[:4]))
+	reserved := len(prefix) + 2 + len(suffix)
+	maxBaseLength := maxCodeLength - reserved
+	if maxBaseLength < 1 {
+		maxBaseLength = 1
+	}
+	if len(base) > maxBaseLength {
+		base = strings.Trim(base[:maxBaseLength], "-")
+		if base == "" {
+			base = "ITEM"
+		}
+	}
+
+	return prefix + "-" + base + "-" + suffix
+}
+
+func normalizeCodeBase(name string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range strings.TrimSpace(name) {
+		r = unicode.ToUpper(r)
+		switch {
+		case (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			builder.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash && builder.Len() > 0 {
+				builder.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(builder.String(), "-")
 }

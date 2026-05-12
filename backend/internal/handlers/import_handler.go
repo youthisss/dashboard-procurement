@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -39,10 +40,9 @@ func (h *ImportHandler) UploadAndParse(c *gin.Context) {
 		return
 	}
 
-	// Validate file extension
-	ext := filepath.Ext(file.Filename)
-	if ext != ".xlsx" && ext != ".xls" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only .xlsx and .xls files are allowed"})
+	safeFileName, err := sanitizeUploadedExcelFilename(file.Filename)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -60,7 +60,7 @@ func (h *ImportHandler) UploadAndParse(c *gin.Context) {
 
 	// Save file with timestamp
 	timestamp := time.Now().Format("20060102_150405")
-	savedName := fmt.Sprintf("%s_%s", timestamp, file.Filename)
+	savedName := fmt.Sprintf("%s_%s", timestamp, safeFileName)
 	savedPath := filepath.Join(h.cfg.UploadDir, savedName)
 
 	if err := c.SaveUploadedFile(file, savedPath); err != nil {
@@ -97,13 +97,38 @@ func (h *ImportHandler) UploadAndParse(c *gin.Context) {
 	})
 }
 
+func sanitizeUploadedExcelFilename(name string) (string, error) {
+	cleaned := strings.TrimSpace(name)
+	if cleaned == "" || cleaned == "." {
+		return "", fmt.Errorf("invalid file name")
+	}
+	if strings.ContainsAny(cleaned, `/\`) || filepath.IsAbs(cleaned) || filepath.Base(cleaned) != cleaned {
+		return "", fmt.Errorf("invalid file name")
+	}
+	ext := strings.ToLower(filepath.Ext(cleaned))
+	if ext != ".xlsx" && ext != ".xls" {
+		return "", fmt.Errorf("only .xlsx and .xls files are allowed")
+	}
+	return cleaned, nil
+}
+
 // ConfirmImport receives a previously saved filename and bulk-inserts the data into the database.
 func (h *ImportHandler) ConfirmImport(c *gin.Context) {
 	var req struct {
-		SavedAs string `json:"saved_as" binding:"required"`
+		SavedAs      string                 `json:"saved_as" binding:"required"`
+		ContractMode string                 `json:"contract_mode"`
+		Sheets       []services.ParsedSheet `json:"sheets"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "saved_as field is required"})
+		return
+	}
+	contractMode := strings.TrimSpace(req.ContractMode)
+	if contractMode == "" {
+		contractMode = "plan"
+	}
+	if contractMode != "plan" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "actual contract import is not available yet"})
 		return
 	}
 
@@ -132,20 +157,39 @@ func (h *ImportHandler) ConfirmImport(c *gin.Context) {
 		return
 	}
 
-	if _, err := os.Stat(filePathAbs); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found on server"})
-		return
+	hasParsedSheets := len(req.Sheets) > 0
+	if !hasParsedSheets {
+		if _, err := os.Stat(filePathAbs); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "file not found on server"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to access uploaded file"})
+			return
+		}
 	}
 
-	result, err := h.importService.ConfirmImport(filePathAbs)
+	var result *services.ImportResult
+	if hasParsedSheets {
+		result, err = h.importService.ConfirmParsedSheets(req.Sheets)
+	} else {
+		result, err = h.importService.ConfirmImport(filePathAbs)
+	}
 	if err != nil {
+		if services.IsImportValidationError(err) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  err.Error(),
+				"result": result,
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Clean up the uploaded file after successful import (unless IMPORT_KEEP_FILES is true)
 	if !h.cfg.ImportKeepFiles {
-		if removeErr := os.Remove(filePathAbs); removeErr != nil {
+		if removeErr := os.Remove(filePathAbs); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			log.Printf("[IMPORT] Warning: failed to remove file after import: %v", removeErr)
 		} else {
 			log.Printf("[IMPORT] Cleaned up imported file: %s", cleanName)

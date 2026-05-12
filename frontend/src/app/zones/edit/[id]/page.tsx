@@ -8,7 +8,7 @@ export default function ZoneEdit() {
   const { formProps, saveButtonProps } = useForm({});
 
   return (
-    <div style={{ padding: "32px 40px", maxWidth: 1400, margin: "0 auto" }}>
+    <div className="dashboard-page-form">
       <div style={{ marginBottom: 16 }}><Breadcrumb /></div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <Space>
@@ -18,7 +18,7 @@ export default function ZoneEdit() {
       </div>
 
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
-        <Card variant="borderless" style={{ borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+        <Card variant="borderless" className="dashboard-card">
           <Form {...formProps} layout="vertical">
             <Form.Item name={["type"]} hidden>
               <Input />

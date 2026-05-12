@@ -1,8 +1,10 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -11,13 +13,51 @@ import (
 	"rygell-dashboard/internal/repositories"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
+
+type importParser interface {
+	ParseExcelFile(filePath string) ([]ParsedSheet, error)
+}
+
+type importMasterRepository interface {
+	FindOrCreateVendorByName(name string) (*models.Vendor, error)
+	FindOrCreateMillByName(name string) (*models.Mill, error)
+	FindOrCreateProductByName(name string) (*models.Product, error)
+	FindOrCreateZoneByName(name string) (*models.Zone, error)
+	FindOrCreateMotByName(name string) (*models.Mot, error)
+	FindOrCreateUomByName(name string) (*models.Uom, error)
+}
+
+type importContractRepository interface {
+	BulkCreateDedicatedFix(contracts []models.ContractDedicatedFix) error
+	BulkCreateDedicatedVar(contracts []models.ContractDedicatedVar) error
+	BulkCreateOncall(contracts []models.ContractOncall) error
+	FindDedicatedFixBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractDedicatedFix, error)
+	FindDedicatedVarBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractDedicatedVar, error)
+	FindOncallBySPKVendorMill(spk string, vendorID, millID uint) (*models.ContractOncall, error)
+}
+
+type importTransactionRunner interface {
+	RunInTransaction(func(importMasterRepository, importContractRepository) error) error
+}
+
+type gormImportTransactionRunner struct {
+	db *gorm.DB
+}
+
+func (r *gormImportTransactionRunner) RunInTransaction(fn func(importMasterRepository, importContractRepository) error) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		return fn(repositories.NewMasterRepository(tx), repositories.NewContractRepository(tx))
+	})
+}
 
 // ImportService handles the confirmation step of importing parsed Excel data into the database.
 type ImportService struct {
-	parserService *ParserService
-	masterRepo    *repositories.MasterRepository
-	contractRepo  *repositories.ContractRepository
+	parserService importParser
+	masterRepo    importMasterRepository
+	contractRepo  importContractRepository
+	txRunner      importTransactionRunner
 }
 
 // NewImportService creates a new ImportService.
@@ -26,61 +66,124 @@ func NewImportService(parser *ParserService, masterRepo *repositories.MasterRepo
 		parserService: parser,
 		masterRepo:    masterRepo,
 		contractRepo:  contractRepo,
+		txRunner:      &gormImportTransactionRunner{db: masterRepo.DB()},
 	}
 }
 
 // ImportResult contains the summary of an import operation.
 type ImportResult struct {
-	DedicatedFixInserted int      `json:"dedicated_fix_inserted"`
-	DedicatedVarInserted int      `json:"dedicated_var_inserted"`
-	OncallInserted       int      `json:"oncall_inserted"`
-	VendorsCreated       int      `json:"vendors_created"`
-	MillsCreated         int      `json:"mills_created"`
-	Errors               []string `json:"errors,omitempty"`
+	DedicatedFixInserted          int      `json:"dedicated_fix_inserted"`
+	DedicatedFixSkippedDuplicates int      `json:"dedicated_fix_skipped_duplicates"`
+	DedicatedFixUpdated           int      `json:"dedicated_fix_updated"`
+	DedicatedVarInserted          int      `json:"dedicated_var_inserted"`
+	DedicatedVarSkippedDuplicates int      `json:"dedicated_var_skipped_duplicates"`
+	DedicatedVarUpdated           int      `json:"dedicated_var_updated"`
+	OncallInserted                int      `json:"oncall_inserted"`
+	OncallSkippedDuplicates       int      `json:"oncall_skipped_duplicates"`
+	OncallUpdated                 int      `json:"oncall_updated"`
+	VendorsCreated                int      `json:"vendors_created"`
+	MillsCreated                  int      `json:"mills_created"`
+	Errors                        []string `json:"errors,omitempty"`
 }
 
-// ConfirmImport re-parses the saved Excel file and bulk-inserts data into the database.
+// ImportValidationError marks row-level import failures. ConfirmImport returns
+// it after the transaction is rolled back, alongside the row errors in result.
+type ImportValidationError struct {
+	Errors []string
+}
+
+func (e *ImportValidationError) Error() string {
+	return fmt.Sprintf("import validation failed with %d row error(s)", len(e.Errors))
+}
+
+func IsImportValidationError(err error) bool {
+	var validationErr *ImportValidationError
+	return errors.As(err, &validationErr)
+}
+
+// ConfirmImport re-parses the saved Excel file and inserts data atomically.
 func (s *ImportService) ConfirmImport(filePath string) (*ImportResult, error) {
-	log.Printf("[IMPORT] Starting confirm import for file: %s", filePath)
+	log.Printf("[IMPORT] Starting confirm import for file: %s", filepath.Base(filePath))
 	sheets, err := s.parserService.ParseExcelFile(filePath)
 	if err != nil {
-		log.Printf("[IMPORT] ERROR: Failed to re-parse file: %v", err)
+		log.Printf("[IMPORT] ERROR: Failed to re-parse uploaded file: %v", err)
 		return nil, fmt.Errorf("failed to re-parse file: %w", err)
 	}
 
+	return s.ConfirmParsedSheets(sheets)
+}
+
+// ConfirmParsedSheets inserts already parsed sheet data atomically. This is used
+// when the frontend preview table is edited before confirmation.
+func (s *ImportService) ConfirmParsedSheets(sheets []ParsedSheet) (*ImportResult, error) {
+	var result *ImportResult
+	err := s.runInTransaction(func(masterRepo importMasterRepository, contractRepo importContractRepository) error {
+		worker := &ImportService{
+			parserService: s.parserService,
+			masterRepo:    masterRepo,
+			contractRepo:  contractRepo,
+			txRunner:      s.txRunner,
+		}
+		result = worker.importParsedSheets(sheets)
+		if len(result.Errors) > 0 {
+			return &ImportValidationError{Errors: append([]string(nil), result.Errors...)}
+		}
+		return nil
+	})
+	if result == nil {
+		result = &ImportResult{}
+	}
+	if err != nil {
+		log.Printf("[IMPORT] ERROR: Transaction rolled back: %v", err)
+		return result, err
+	}
+
+	log.Printf("[IMPORT] Final result: fix=%d skipped=%d, var=%d skipped=%d, oncall=%d skipped=%d, error_count=%d",
+		result.DedicatedFixInserted, result.DedicatedFixSkippedDuplicates,
+		result.DedicatedVarInserted, result.DedicatedVarSkippedDuplicates,
+		result.OncallInserted, result.OncallSkippedDuplicates, len(result.Errors))
+	return result, nil
+}
+
+func (s *ImportService) runInTransaction(fn func(importMasterRepository, importContractRepository) error) error {
+	if s.txRunner == nil {
+		return fn(s.masterRepo, s.contractRepo)
+	}
+	return s.txRunner.RunInTransaction(fn)
+}
+
+func (s *ImportService) importParsedSheets(sheets []ParsedSheet) *ImportResult {
 	log.Printf("[IMPORT] Parsed %d sheets", len(sheets))
 	result := &ImportResult{}
 
 	for _, sheet := range sheets {
-		log.Printf("[IMPORT] Sheet '%s' → type='%s', rows=%d, headers=%v",
-			sheet.SheetName, sheet.SheetType, len(sheet.Rows), sheet.Headers)
-		if len(sheet.Rows) > 0 {
-			log.Printf("[IMPORT] First row sample: %v", sheet.Rows[0])
-		}
+		log.Printf("[IMPORT] Sheet parsed: name=%q type=%q rows=%d headers=%d",
+			sheet.SheetName, sheet.SheetType, len(sheet.Rows), len(sheet.Headers))
 		switch sheet.SheetType {
 		case "dedicated_fix":
-			count, errs := s.importDedicatedFix(sheet)
-			log.Printf("[IMPORT] dedicated_fix: inserted=%d, errors=%d", count, len(errs))
+			count, skipped, errs := s.importDedicatedFix(sheet)
+			log.Printf("[IMPORT] dedicated_fix: inserted=%d, skipped=%d, errors=%d", count, skipped, len(errs))
 			result.DedicatedFixInserted += count
+			result.DedicatedFixSkippedDuplicates += skipped
 			result.Errors = append(result.Errors, errs...)
 		case "dedicated_var":
-			count, errs := s.importDedicatedVar(sheet)
-			log.Printf("[IMPORT] dedicated_var: inserted=%d, errors=%d", count, len(errs))
+			count, skipped, errs := s.importDedicatedVar(sheet)
+			log.Printf("[IMPORT] dedicated_var: inserted=%d, skipped=%d, errors=%d", count, skipped, len(errs))
 			result.DedicatedVarInserted += count
+			result.DedicatedVarSkippedDuplicates += skipped
 			result.Errors = append(result.Errors, errs...)
 		case "oncall":
-			count, errs := s.importOncall(sheet)
-			log.Printf("[IMPORT] oncall: inserted=%d, errors=%d", count, len(errs))
+			count, skipped, errs := s.importOncall(sheet)
+			log.Printf("[IMPORT] oncall: inserted=%d, skipped=%d, errors=%d", count, skipped, len(errs))
 			result.OncallInserted += count
+			result.OncallSkippedDuplicates += skipped
 			result.Errors = append(result.Errors, errs...)
 		default:
 			log.Printf("[IMPORT] Skipping sheet '%s' with unknown type '%s'", sheet.SheetName, sheet.SheetType)
 		}
 	}
 
-	log.Printf("[IMPORT] Final result: fix=%d, var=%d, oncall=%d, errors=%v",
-		result.DedicatedFixInserted, result.DedicatedVarInserted, result.OncallInserted, result.Errors)
-	return result, nil
+	return result
 }
 
 // resolveVendor finds or creates a vendor by name from a row.
@@ -159,33 +262,69 @@ func (s *ImportService) resolveUom(row map[string]string) (*uint, error) {
 	return &uom.ID, nil
 }
 
-func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, []string) {
+func contractDedupeKey(spk string, vendorID, millID uint) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(spk))
+	if normalized == "" {
+		return "", false
+	}
+	return fmt.Sprintf("%s|vendor:%d|mill:%d", normalized, vendorID, millID), true
+}
+
+func formatImportRowError(sheetName string, rowNumber int, err error) string {
+	return fmt.Sprintf("Sheet '%s' row %d: %v", sheetName, rowNumber, err)
+}
+
+func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, int, []string) {
 	var contracts []models.ContractDedicatedFix
 	var errs []string
+	skippedDuplicates := 0
+	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
 			continue
 		}
+		rowNumber := i + 2
 		vendorID, err := s.resolveVendor(row)
 		if err != nil {
-			if err.Error() == "vendor name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 		millID, err := s.resolveMill(row)
 		if err != nil {
-			if err.Error() == "mill name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 
-		motID, _ := s.resolveMot(row)
-		uomID, _ := s.resolveUom(row)
+		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK", "spk_number", "SPK NO")
+		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
+		if !ok {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			skippedDuplicates++
+			continue
+		}
+		if duplicate, err := s.contractRepo.FindDedicatedFixBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
+			seen[key] = struct{}{}
+			skippedDuplicates++
+			continue
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
+			continue
+		}
+
+		motID, err := s.resolveMot(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		uomID, err := s.resolveUom(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
 
 		c := models.ContractDedicatedFix{
 			VendorID:        vendorID,
@@ -196,7 +335,7 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, []string) {
 			MotID:           motID,
 			UomID:           uomID,
 			LicensePlate:    findField(row, "LISENCE PLATE", "LICENSE PLATE", "License Plate", "license_plate", "Nopol"),
-			SPKNumber:       findField(row, "SPK NUMBER", "SPK Number", "SPK", "spk_number", "SPK NO"),
+			SPKNumber:       strings.TrimSpace(spkNumber),
 			CostJan:         parseDecimal(findField(row, "Jan-26", "Jan-25", "Cost Jan", "Jan", "JAN")),
 			CostFeb:         parseDecimal(findField(row, "Feb-26", "Feb-25", "Cost Feb", "Feb", "FEB")),
 			CostMar:         parseDecimal(findField(row, "Mar-26", "Mar-25", "Cost Mar", "Mar", "MAR")),
@@ -214,47 +353,84 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, []string) {
 			ValidityEnd:     parseDate(findField(row, "VALIDITY END", "Validity End", "End Date", "END", "VALIDITY\nEND", "Valid End", "Valid Until", "Validty End", "Expiry", "Expiration", "To Date", "Until")),
 		}
 		contracts = append(contracts, c)
+		seen[key] = struct{}{}
+	}
+
+	if len(errs) > 0 {
+		return 0, skippedDuplicates, errs
 	}
 
 	if len(contracts) > 0 {
 		if err := s.contractRepo.BulkCreateDedicatedFix(contracts); err != nil {
 			errs = append(errs, fmt.Sprintf("Bulk insert dedicated_fix failed: %v", err))
-			return 0, errs
+			return 0, skippedDuplicates, errs
 		}
 	}
 
-	return len(contracts), errs
+	return len(contracts), skippedDuplicates, errs
 }
 
-func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, []string) {
+func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, int, []string) {
 	var contracts []models.ContractDedicatedVar
 	var errs []string
+	skippedDuplicates := 0
+	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
 			continue
 		}
+		rowNumber := i + 2
 		vendorID, err := s.resolveVendor(row)
 		if err != nil {
-			if err.Error() == "vendor name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 		millID, err := s.resolveMill(row)
 		if err != nil {
-			if err.Error() == "mill name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 
-		originZoneID, _ := s.resolveZone(row, "ORIGIN ZONE", "Origin Zone", "Origin")
-		destZoneID, _ := s.resolveZone(row, "DESTINATION ZONE", "Destination Zone", "Dest Zone", "Dest")
-		motID, _ := s.resolveMot(row)
-		uomID, _ := s.resolveUom(row)
+		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK")
+		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
+		if !ok {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			skippedDuplicates++
+			continue
+		}
+		if duplicate, err := s.contractRepo.FindDedicatedVarBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
+			seen[key] = struct{}{}
+			skippedDuplicates++
+			continue
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
+			continue
+		}
+
+		originZoneID, err := s.resolveZone(row, "ORIGIN ZONE", "Origin Zone", "Origin")
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		destZoneID, err := s.resolveZone(row, "DESTINATION ZONE", "Destination Zone", "Dest Zone", "Dest")
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		motID, err := s.resolveMot(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		uomID, err := s.resolveUom(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
 
 		c := models.ContractDedicatedVar{
 			VendorID:      vendorID,
@@ -267,7 +443,7 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, []string) {
 			MotID:         motID,
 			UomID:         uomID,
 			Distance:      parseDecimal(findField(row, "DISTANCE (KM)", "Distance")),
-			SPKNumber:     findField(row, "SPK NUMBER", "SPK Number", "SPK"),
+			SPKNumber:     strings.TrimSpace(spkNumber),
 			ValidityStart: parseDate(findField(row, "VALIDITY START", "Validity Start", "Start Date", "START", "VALIDITY\nSTART", "Valid Start", "Valid From", "Validty Start")),
 			ValidityEnd:   parseDate(findField(row, "VALIDITY END", "Validity End", "End Date", "END", "VALIDITY\nEND", "Valid End", "Valid Until", "Validty End", "Expiry", "Expiration", "To Date", "Until")),
 			Payload:       parseDecimal(findField(row, "PAYLOAD", "Payload")),
@@ -277,48 +453,89 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, []string) {
 			Notes:         findField(row, "Notes", "Note", "NOTES"),
 		}
 		contracts = append(contracts, c)
+		seen[key] = struct{}{}
+	}
+
+	if len(errs) > 0 {
+		return 0, skippedDuplicates, errs
 	}
 
 	if len(contracts) > 0 {
 		if err := s.contractRepo.BulkCreateDedicatedVar(contracts); err != nil {
 			errs = append(errs, fmt.Sprintf("Bulk insert dedicated_var failed: %v", err))
-			return 0, errs
+			return 0, skippedDuplicates, errs
 		}
 	}
 
-	return len(contracts), errs
+	return len(contracts), skippedDuplicates, errs
 }
 
-func (s *ImportService) importOncall(sheet ParsedSheet) (int, []string) {
+func (s *ImportService) importOncall(sheet ParsedSheet) (int, int, []string) {
 	var contracts []models.ContractOncall
 	var errs []string
+	skippedDuplicates := 0
+	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
 			continue
 		}
+		rowNumber := i + 2
 		vendorID, err := s.resolveVendor(row)
 		if err != nil {
-			if err.Error() == "vendor name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 		millID, err := s.resolveMill(row)
 		if err != nil {
-			if err.Error() == "mill name is empty" {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("Sheet '%s' row %d: %v", sheet.SheetName, i+2, err))
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
 			continue
 		}
 
-		productID, _ := s.resolveProduct(row)
-		originZoneID, _ := s.resolveZone(row, "ORIGIN ZONE", "Origin Zone", "Origin")
-		destZoneID, _ := s.resolveZone(row, "DESTINATION ZONE", "Destination Zone", "Dest Zone")
-		motID, _ := s.resolveMot(row)
-		uomID, _ := s.resolveUom(row)
+		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK")
+		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
+		if !ok {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			skippedDuplicates++
+			continue
+		}
+		if duplicate, err := s.contractRepo.FindOncallBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
+			seen[key] = struct{}{}
+			skippedDuplicates++
+			continue
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
+			continue
+		}
+
+		productID, err := s.resolveProduct(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		originZoneID, err := s.resolveZone(row, "ORIGIN ZONE", "Origin Zone", "Origin")
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		destZoneID, err := s.resolveZone(row, "DESTINATION ZONE", "Destination Zone", "Dest Zone")
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		motID, err := s.resolveMot(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
+		uomID, err := s.resolveUom(row)
+		if err != nil {
+			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, err))
+			continue
+		}
 
 		c := models.ContractOncall{
 			VendorID:       vendorID,
@@ -331,7 +548,7 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, []string) {
 			DestZoneID:     destZoneID,
 			MotID:          motID,
 			UomID:          uomID,
-			SPKNumber:      findField(row, "SPK NUMBER", "SPK Number", "SPK"),
+			SPKNumber:      strings.TrimSpace(spkNumber),
 			ValidityStart:  parseDate(findField(row, "VALIDITY START", "Validity Start", "Start Date", "START", "VALIDITY\nSTART", "Valid Start", "Valid From", "Validty Start")),
 			ValidityEnd:    parseDate(findField(row, "VALIDITY END", "Validity End", "End Date", "END", "VALIDITY\nEND", "Valid End", "Valid Until", "Validty End", "Expiry", "Expiration", "To Date", "Until")),
 			Payload:        parseDecimal(findField(row, "PAYLOAD", "Payload")),
@@ -346,16 +563,21 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, []string) {
 			Notes:          findField(row, "NOTES", "Notes", "Note"),
 		}
 		contracts = append(contracts, c)
+		seen[key] = struct{}{}
+	}
+
+	if len(errs) > 0 {
+		return 0, skippedDuplicates, errs
 	}
 
 	if len(contracts) > 0 {
 		if err := s.contractRepo.BulkCreateOncall(contracts); err != nil {
 			errs = append(errs, fmt.Sprintf("Bulk insert oncall failed: %v", err))
-			return 0, errs
+			return 0, skippedDuplicates, errs
 		}
 	}
 
-	return len(contracts), errs
+	return len(contracts), skippedDuplicates, errs
 }
 
 // --- Helper functions ---
@@ -529,7 +751,9 @@ func parseDate(s string) *time.Time {
 
 	// Try common Indonesian or mixed formats
 	cleanedLower := strings.ToLower(cleaned)
-	if strings.Contains(cleanedLower, "jan") { cleaned = strings.Replace(cleanedLower, "jan", "Jan", 1) }
+	if strings.Contains(cleanedLower, "jan") {
+		cleaned = strings.Replace(cleanedLower, "jan", "Jan", 1)
+	}
 	// ... could add more but let's stick to standard English for now as Go's time.Parse expects English
 
 	// Try to handle Excel serial numbers (e.g. 45291)

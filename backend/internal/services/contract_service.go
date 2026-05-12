@@ -2,24 +2,73 @@ package services
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"rygell-dashboard/internal/models"
 	"rygell-dashboard/internal/repositories"
+
+	"gorm.io/gorm"
 )
 
 // ContractService handles business logic for contracts and audit logging.
 type ContractService struct {
 	contractRepo *repositories.ContractRepository
-	auditRepo    *repositories.AuditRepository
+	auditRepo    auditLogStore
+	masterRepo   agreementMasterStore
+	txRunner     contractTransactionRunner
+}
+
+type auditLogStore interface {
+	Create(log *models.AuditLog) error
+	GetByEntity(entityType string, entityID uint) ([]models.AuditLog, error)
+	GetByVendor(vendorID uint) ([]models.AuditLog, error)
+}
+
+type agreementMasterStore interface {
+	GetVendorByID(id uint) (*models.Vendor, error)
+	GetMillByID(id uint) (*models.Mill, error)
+}
+
+type contractTransactionRunner interface {
+	RunInTransaction(func(*repositories.ContractRepository, auditLogStore, agreementMasterStore) error) error
+}
+
+type gormContractTransactionRunner struct {
+	db         *gorm.DB
+	withMaster bool
+}
+
+func (r *gormContractTransactionRunner) RunInTransaction(fn func(*repositories.ContractRepository, auditLogStore, agreementMasterStore) error) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var masterRepo agreementMasterStore
+		if r.withMaster {
+			masterRepo = repositories.NewMasterRepository(tx)
+		}
+		return fn(
+			repositories.NewContractRepository(tx),
+			repositories.NewAuditRepository(tx),
+			masterRepo,
+		)
+	})
 }
 
 // NewContractService creates a new ContractService.
-func NewContractService(contractRepo *repositories.ContractRepository, auditRepo *repositories.AuditRepository) *ContractService {
-	return &ContractService{
+func NewContractService(contractRepo *repositories.ContractRepository, auditRepo *repositories.AuditRepository, masterRepo ...*repositories.MasterRepository) *ContractService {
+	service := &ContractService{
 		contractRepo: contractRepo,
 		auditRepo:    auditRepo,
 	}
+	if len(masterRepo) > 0 {
+		service.masterRepo = masterRepo[0]
+	}
+	if contractRepo != nil && auditRepo != nil {
+		service.txRunner = &gormContractTransactionRunner{
+			db:         contractRepo.DB(),
+			withMaster: len(masterRepo) > 0,
+		}
+	}
+	return service
 }
 
 // --- Dedicated Fix ---
@@ -37,20 +86,29 @@ func (s *ContractService) GetDedicatedFixByID(id uint) (*models.ContractDedicate
 }
 
 func (s *ContractService) CreateDedicatedFix(contract *models.ContractDedicatedFix) error {
-	if err := s.contractRepo.CreateDedicatedFix(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_fix", contract.ID, "create", "", "", contract)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		if err := worker.contractRepo.CreateDedicatedFix(contract); err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_fix", contract.ID, "create", "", "", nil, contract)
+	})
 }
 
 func (s *ContractService) UpdateDedicatedFix(contract *models.ContractDedicatedFix, changedBy, note string) error {
-	old, _ := s.contractRepo.GetDedicatedFixByID(contract.ID)
-	if err := s.contractRepo.UpdateDedicatedFix(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_fix", contract.ID, "update", changedBy, note, old)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetDedicatedFixByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		if err := worker.contractRepo.UpdateDedicatedFix(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetDedicatedFixByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_fix", contract.ID, "update", changedBy, note, old, updated)
+	})
 }
 
 func (s *ContractService) DeleteDedicatedFix(id uint) error {
@@ -59,16 +117,22 @@ func (s *ContractService) DeleteDedicatedFix(id uint) error {
 
 // UpdateDedicatedFixAgreement updates only the agreement note on a contract.
 func (s *ContractService) UpdateDedicatedFixAgreement(id uint, changedBy, note string) error {
-	contract, err := s.contractRepo.GetDedicatedFixByID(id)
-	if err != nil {
-		return err
-	}
-	contract.Notes = note
-	if err := s.contractRepo.UpdateDedicatedFix(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_fix", id, "agreement_update", changedBy, note, nil)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		contract, err := worker.contractRepo.GetDedicatedFixByID(id)
+		if err != nil {
+			return err
+		}
+		old := *contract
+		contract.Notes = note
+		if err := worker.contractRepo.UpdateDedicatedFix(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetDedicatedFixByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_fix", id, "agreement_update", changedBy, note, &old, updated)
+	})
 }
 
 // --- Dedicated Var ---
@@ -86,20 +150,29 @@ func (s *ContractService) GetDedicatedVarByID(id uint) (*models.ContractDedicate
 }
 
 func (s *ContractService) CreateDedicatedVar(contract *models.ContractDedicatedVar) error {
-	if err := s.contractRepo.CreateDedicatedVar(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_var", contract.ID, "create", "", "", contract)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		if err := worker.contractRepo.CreateDedicatedVar(contract); err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_var", contract.ID, "create", "", "", nil, contract)
+	})
 }
 
 func (s *ContractService) UpdateDedicatedVar(contract *models.ContractDedicatedVar, changedBy, note string) error {
-	old, _ := s.contractRepo.GetDedicatedVarByID(contract.ID)
-	if err := s.contractRepo.UpdateDedicatedVar(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_var", contract.ID, "update", changedBy, note, old)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetDedicatedVarByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		if err := worker.contractRepo.UpdateDedicatedVar(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetDedicatedVarByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_var", contract.ID, "update", changedBy, note, old, updated)
+	})
 }
 
 func (s *ContractService) DeleteDedicatedVar(id uint) error {
@@ -108,16 +181,22 @@ func (s *ContractService) DeleteDedicatedVar(id uint) error {
 
 // UpdateDedicatedVarAgreement updates only the agreement note on a var contract.
 func (s *ContractService) UpdateDedicatedVarAgreement(id uint, changedBy, note string) error {
-	contract, err := s.contractRepo.GetDedicatedVarByID(id)
-	if err != nil {
-		return err
-	}
-	contract.Notes = note
-	if err := s.contractRepo.UpdateDedicatedVar(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_dedicated_var", id, "agreement_update", changedBy, note, nil)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		contract, err := worker.contractRepo.GetDedicatedVarByID(id)
+		if err != nil {
+			return err
+		}
+		old := *contract
+		contract.Notes = note
+		if err := worker.contractRepo.UpdateDedicatedVar(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetDedicatedVarByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_var", id, "agreement_update", changedBy, note, &old, updated)
+	})
 }
 
 // --- Oncall ---
@@ -135,20 +214,29 @@ func (s *ContractService) GetOncallByID(id uint) (*models.ContractOncall, error)
 }
 
 func (s *ContractService) CreateOncall(contract *models.ContractOncall) error {
-	if err := s.contractRepo.CreateOncall(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_oncall", contract.ID, "create", "", "", contract)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		if err := worker.contractRepo.CreateOncall(contract); err != nil {
+			return err
+		}
+		return worker.logAudit("contract_oncall", contract.ID, "create", "", "", nil, contract)
+	})
 }
 
 func (s *ContractService) UpdateOncall(contract *models.ContractOncall, changedBy, note string) error {
-	old, _ := s.contractRepo.GetOncallByID(contract.ID)
-	if err := s.contractRepo.UpdateOncall(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_oncall", contract.ID, "update", changedBy, note, old)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetOncallByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		if err := worker.contractRepo.UpdateOncall(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetOncallByID(contract.ID)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_oncall", contract.ID, "update", changedBy, note, old, updated)
+	})
 }
 
 func (s *ContractService) DeleteOncall(id uint) error {
@@ -157,16 +245,22 @@ func (s *ContractService) DeleteOncall(id uint) error {
 
 // UpdateOncallAgreement updates only the agreement note on an oncall contract.
 func (s *ContractService) UpdateOncallAgreement(id uint, changedBy, note string) error {
-	contract, err := s.contractRepo.GetOncallByID(id)
-	if err != nil {
-		return err
-	}
-	contract.Notes = note
-	if err := s.contractRepo.UpdateOncall(contract); err != nil {
-		return err
-	}
-	s.logAudit("contract_oncall", id, "agreement_update", changedBy, note, nil)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		contract, err := worker.contractRepo.GetOncallByID(id)
+		if err != nil {
+			return err
+		}
+		old := *contract
+		contract.Notes = note
+		if err := worker.contractRepo.UpdateOncall(contract); err != nil {
+			return err
+		}
+		updated, err := worker.contractRepo.GetOncallByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_oncall", id, "agreement_update", changedBy, note, &old, updated)
+	})
 }
 
 // --- Map-based Updates (partial update, no association conflicts) ---
@@ -212,36 +306,63 @@ func sanitizeUpdateMap(body map[string]interface{}) map[string]interface{} {
 }
 
 func (s *ContractService) UpdateDedicatedFixMap(id uint, body map[string]interface{}, changedBy, note string) (*models.ContractDedicatedFix, error) {
-	old, _ := s.contractRepo.GetDedicatedFixByID(id)
-	updates := sanitizeUpdateMap(body)
-	if err := s.contractRepo.UpdateDedicatedFixMap(id, updates); err != nil {
-		return nil, err
-	}
-	s.logAudit("contract_dedicated_fix", id, "update", changedBy, note, old)
-	result, _ := s.contractRepo.GetDedicatedFixByID(id)
-	return result, nil
+	var result *models.ContractDedicatedFix
+	err := s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetDedicatedFixByID(id)
+		if err != nil {
+			return err
+		}
+		updates := sanitizeUpdateMap(body)
+		if err := worker.contractRepo.UpdateDedicatedFixMap(id, updates); err != nil {
+			return err
+		}
+		result, err = worker.contractRepo.GetDedicatedFixByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_fix", id, "update", changedBy, note, old, result)
+	})
+	return result, err
 }
 
 func (s *ContractService) UpdateDedicatedVarMap(id uint, body map[string]interface{}, changedBy, note string) (*models.ContractDedicatedVar, error) {
-	old, _ := s.contractRepo.GetDedicatedVarByID(id)
-	updates := sanitizeUpdateMap(body)
-	if err := s.contractRepo.UpdateDedicatedVarMap(id, updates); err != nil {
-		return nil, err
-	}
-	s.logAudit("contract_dedicated_var", id, "update", changedBy, note, old)
-	result, _ := s.contractRepo.GetDedicatedVarByID(id)
-	return result, nil
+	var result *models.ContractDedicatedVar
+	err := s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetDedicatedVarByID(id)
+		if err != nil {
+			return err
+		}
+		updates := sanitizeUpdateMap(body)
+		if err := worker.contractRepo.UpdateDedicatedVarMap(id, updates); err != nil {
+			return err
+		}
+		result, err = worker.contractRepo.GetDedicatedVarByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_dedicated_var", id, "update", changedBy, note, old, result)
+	})
+	return result, err
 }
 
 func (s *ContractService) UpdateOncallMap(id uint, body map[string]interface{}, changedBy, note string) (*models.ContractOncall, error) {
-	old, _ := s.contractRepo.GetOncallByID(id)
-	updates := sanitizeUpdateMap(body)
-	if err := s.contractRepo.UpdateOncallMap(id, updates); err != nil {
-		return nil, err
-	}
-	s.logAudit("contract_oncall", id, "update", changedBy, note, old)
-	result, _ := s.contractRepo.GetOncallByID(id)
-	return result, nil
+	var result *models.ContractOncall
+	err := s.withMutationTransaction(func(worker *ContractService) error {
+		old, err := worker.contractRepo.GetOncallByID(id)
+		if err != nil {
+			return err
+		}
+		updates := sanitizeUpdateMap(body)
+		if err := worker.contractRepo.UpdateOncallMap(id, updates); err != nil {
+			return err
+		}
+		result, err = worker.contractRepo.GetOncallByID(id)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("contract_oncall", id, "update", changedBy, note, old, result)
+	})
+	return result, err
 }
 
 // --- Audit History ---
@@ -256,19 +377,52 @@ func (s *ContractService) GetVendorAuditHistory(vendorID uint) ([]models.AuditLo
 
 // UpdateVendorAgreement adds a negotiation note directly to a vendor.
 func (s *ContractService) UpdateVendorAgreement(vendorID uint, changedBy, note string) error {
-	s.logAudit("vendor", vendorID, "agreement_update", changedBy, note, nil)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		if worker.masterRepo == nil {
+			return fmt.Errorf("master repository is required for vendor agreement updates")
+		}
+		vendor, err := worker.masterRepo.GetVendorByID(vendorID)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("vendor", vendorID, "agreement_update", changedBy, note, vendor, vendor)
+	})
 }
 
 // UpdateMillAgreement adds a negotiation note directly to a mill.
 func (s *ContractService) UpdateMillAgreement(millID uint, changedBy, note string) error {
-	s.logAudit("mill", millID, "agreement_update", changedBy, note, nil)
-	return nil
+	return s.withMutationTransaction(func(worker *ContractService) error {
+		if worker.masterRepo == nil {
+			return fmt.Errorf("master repository is required for mill agreement updates")
+		}
+		mill, err := worker.masterRepo.GetMillByID(millID)
+		if err != nil {
+			return err
+		}
+		return worker.logAudit("mill", millID, "agreement_update", changedBy, note, mill, mill)
+	})
 }
 
 // --- Internal Helpers ---
 
-func (s *ContractService) logAudit(entityType string, entityID uint, action, changedBy, note string, oldData interface{}) {
+func (s *ContractService) withMutationTransaction(fn func(*ContractService) error) error {
+	if s.txRunner == nil {
+		return fn(s)
+	}
+	return s.txRunner.RunInTransaction(func(contractRepo *repositories.ContractRepository, auditRepo auditLogStore, masterRepo agreementMasterStore) error {
+		worker := &ContractService{
+			contractRepo: contractRepo,
+			auditRepo:    auditRepo,
+			masterRepo:   s.masterRepo,
+		}
+		if masterRepo != nil {
+			worker.masterRepo = masterRepo
+		}
+		return fn(worker)
+	})
+}
+
+func (s *ContractService) logAudit(entityType string, entityID uint, action, changedBy, note string, oldData, newData interface{}) error {
 	audit := &models.AuditLog{
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -277,9 +431,26 @@ func (s *ContractService) logAudit(entityType string, entityID uint, action, cha
 		AgreementNote: note,
 	}
 	if oldData != nil {
-		if data, err := json.Marshal(oldData); err == nil {
-			audit.OldData = string(data)
+		data, err := marshalAuditData(oldData)
+		if err != nil {
+			return err
 		}
+		audit.OldData = data
 	}
-	_ = s.auditRepo.Create(audit)
+	if newData != nil {
+		data, err := marshalAuditData(newData)
+		if err != nil {
+			return err
+		}
+		audit.NewData = data
+	}
+	return s.auditRepo.Create(audit)
+}
+
+func marshalAuditData(value interface{}) (string, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal audit data: %w", err)
+	}
+	return string(data), nil
 }

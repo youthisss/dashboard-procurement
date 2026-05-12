@@ -43,6 +43,9 @@ func (s *UserService) EnsureDefaultAdminWithSync(name, username, password string
 		if !syncPassword {
 			return nil
 		}
+		if err := ValidatePassword(password); err != nil {
+			return err
+		}
 		hash, hashErr := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if hashErr != nil {
 			return hashErr
@@ -53,6 +56,9 @@ func (s *UserService) EnsureDefaultAdminWithSync(name, username, password string
 		return err
 	}
 
+	if err := ValidatePassword(password); err != nil {
+		return err
+	}
 	_, err = s.CreateUser(name, username, password)
 	return err
 }
@@ -60,6 +66,9 @@ func (s *UserService) EnsureDefaultAdminWithSync(name, username, password string
 func (s *UserService) CreateUser(name, username, password string) (*models.User, error) {
 	if username == "" || password == "" || name == "" {
 		return nil, errors.New("name, username, and password are required")
+	}
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -143,8 +152,8 @@ func (s *UserService) DeleteUser(id uint) error {
 }
 
 func (s *UserService) UpdateUserPassword(id uint, newPassword string) error {
-	if len(newPassword) < 6 {
-		return errors.New("password must be at least 6 characters")
+	if err := ValidatePassword(newPassword); err != nil {
+		return err
 	}
 
 	_, err := s.repo.FindByID(id)
