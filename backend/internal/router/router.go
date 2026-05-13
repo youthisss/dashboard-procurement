@@ -64,7 +64,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 	api.POST("/auth/login", authHandler.Login)
-	api.POST("/auth/logout", authHandler.Logout)
+	api.POST("/auth/logout", middleware.StrictOriginForUnsafeMethods(cfg), authHandler.Logout)
 
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(cfg.JWTSecret, cfg.CookieName))

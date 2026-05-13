@@ -111,7 +111,7 @@ export default function DedicatedVarList() {
             title="Validity"
             width={220}
             render={(_, record: any) => (
-              <Space direction="vertical" size="small">
+              <Space orientation="vertical" size="small">
                 <Text style={{ fontSize: 12 }}>Start: {formatDate(record.validity_start)}</Text>
                 <Text style={{ fontSize: 12 }}>End: {formatDate(record.validity_end)}</Text>
               </Space>
@@ -124,7 +124,7 @@ export default function DedicatedVarList() {
             title="Route"
             width={240}
             render={(_, record: any) => (
-              <Space direction="vertical" size="small">
+              <Space orientation="vertical" size="small">
                 <Text style={{ fontSize: 12 }}>Origin: <Text strong>{record.origin_zone?.name || "-"}</Text></Text>
                 <Text style={{ fontSize: 12 }}>Dest: <Text strong>{record.dest_zone?.name || "-"}</Text></Text>
               </Space>

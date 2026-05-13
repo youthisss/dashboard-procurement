@@ -1,0 +1,10 @@
+.git
+.gitignore
+.gocache
+.gotelemetry
+uploads
+tmp
+*.log
+.env
+.env.*
+!.env.example

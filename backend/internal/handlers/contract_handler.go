@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"rygell-dashboard/internal/models"
 	"rygell-dashboard/internal/services"
@@ -15,7 +16,11 @@ import (
 	"gorm.io/gorm"
 )
 
-const contractUpdateBodyLimit = 2 * 1024 * 1024
+const (
+	contractUpdateBodyLimit  = 2 * 1024 * 1024
+	contractDefaultPageLimit = 100
+	contractMaxPageLimit     = 500
+)
 
 // ContractHandler handles HTTP requests for contract data.
 type ContractHandler struct {
@@ -33,19 +38,25 @@ func parsePagination(c *gin.Context) (limit, offset int) {
 	if start < 0 {
 		start = 0
 	}
+	offset = start
 
 	endStr, ok := c.GetQuery("_end")
 	if !ok {
-		return 0, start
+		return contractDefaultPageLimit, offset
 	}
-	end, _ := strconv.Atoi(endStr)
+	end, err := strconv.Atoi(endStr)
+	if err != nil {
+		return contractDefaultPageLimit, offset
+	}
 	if end < start {
 		end = start
 	}
 	limit = end - start
-	offset = start
 	if limit < 0 {
 		limit = 0
+	}
+	if limit > contractMaxPageLimit {
+		limit = contractMaxPageLimit
 	}
 	return limit, offset
 }
@@ -56,6 +67,22 @@ func respondContractDataError(c *gin.Context, err error, notFoundMessage string)
 		return
 	}
 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
+func auditActorFromContext(c *gin.Context) string {
+	usernameAny, ok := c.Get("username")
+	if !ok {
+		return "system"
+	}
+	username, ok := usernameAny.(string)
+	if !ok {
+		return "system"
+	}
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return "system"
+	}
+	return trimmed
 }
 
 func readContractUpdateBody(c *gin.Context) ([]byte, bool) {
@@ -150,7 +177,7 @@ func (h *ContractHandler) UpdateDedicatedFix(c *gin.Context) {
 	contract.Mot = nil
 	contract.Uom = nil
 
-	changedBy := c.Query("changed_by")
+	changedBy := auditActorFromContext(c)
 	note := c.Query("note")
 
 	if err := h.service.UpdateDedicatedFix(contract, changedBy, note); err != nil {
@@ -190,7 +217,7 @@ func (h *ContractHandler) UpdateDedicatedFixAgreement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateDedicatedFixAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
+	if err := h.service.UpdateDedicatedFixAgreement(uint(id), auditActorFromContext(c), body.Note); err != nil {
 		respondContractDataError(c, err, "contract not found")
 		return
 	}
@@ -275,7 +302,7 @@ func (h *ContractHandler) UpdateDedicatedVar(c *gin.Context) {
 	contract.Mot = nil
 	contract.Uom = nil
 
-	changedBy := c.Query("changed_by")
+	changedBy := auditActorFromContext(c)
 	note := c.Query("note")
 
 	if err := h.service.UpdateDedicatedVar(contract, changedBy, note); err != nil {
@@ -314,7 +341,7 @@ func (h *ContractHandler) UpdateDedicatedVarAgreement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateDedicatedVarAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
+	if err := h.service.UpdateDedicatedVarAgreement(uint(id), auditActorFromContext(c), body.Note); err != nil {
 		respondContractDataError(c, err, "contract not found")
 		return
 	}
@@ -399,7 +426,7 @@ func (h *ContractHandler) UpdateOncall(c *gin.Context) {
 	contract.Mot = nil
 	contract.Uom = nil
 
-	changedBy := c.Query("changed_by")
+	changedBy := auditActorFromContext(c)
 	note := c.Query("note")
 
 	if err := h.service.UpdateOncall(contract, changedBy, note); err != nil {
@@ -438,7 +465,7 @@ func (h *ContractHandler) UpdateOncallAgreement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateOncallAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
+	if err := h.service.UpdateOncallAgreement(uint(id), auditActorFromContext(c), body.Note); err != nil {
 		respondContractDataError(c, err, "contract not found")
 		return
 	}
@@ -490,7 +517,7 @@ func (h *ContractHandler) UpdateVendorAgreement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateVendorAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
+	if err := h.service.UpdateVendorAgreement(uint(id), auditActorFromContext(c), body.Note); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -511,7 +538,7 @@ func (h *ContractHandler) UpdateMillAgreement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateMillAgreement(uint(id), body.ChangedBy, body.Note); err != nil {
+	if err := h.service.UpdateMillAgreement(uint(id), auditActorFromContext(c), body.Note); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

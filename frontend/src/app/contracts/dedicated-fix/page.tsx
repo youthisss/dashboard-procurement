@@ -110,7 +110,7 @@ export default function DedicatedFixList() {
             title="Validity"
             width={220}
             render={(_, record: any) => (
-              <Space direction="vertical" size="small">
+              <Space orientation="vertical" size="small">
                 <Text style={{ fontSize: 12 }}>Start: {formatDate(record.validity_start)}</Text>
                 <Text style={{ fontSize: 12 }}>End: {formatDate(record.validity_end)}</Text>
               </Space>
