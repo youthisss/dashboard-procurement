@@ -86,8 +86,9 @@ type ImportResult struct {
 	Errors                        []string `json:"errors,omitempty"`
 }
 
-// ImportValidationError marks row-level import failures. ConfirmImport returns
-// it after the transaction is rolled back, alongside the row errors in result.
+// ImportValidationError is kept for backward compatibility with callers that may
+// still type-check this error kind. Current import flow no longer returns this
+// for row-level validation failures because partial import is allowed.
 type ImportValidationError struct {
 	Errors []string
 }
@@ -113,7 +114,7 @@ func (s *ImportService) ConfirmImport(filePath string) (*ImportResult, error) {
 	return s.ConfirmParsedSheets(sheets)
 }
 
-// ConfirmParsedSheets inserts already parsed sheet data atomically. This is used
+// ConfirmParsedSheets inserts already parsed sheet data. This is used
 // when the frontend preview table is edited before confirmation.
 func (s *ImportService) ConfirmParsedSheets(sheets []ParsedSheet) (*ImportResult, error) {
 	var result *ImportResult
@@ -125,9 +126,6 @@ func (s *ImportService) ConfirmParsedSheets(sheets []ParsedSheet) (*ImportResult
 			txRunner:      s.txRunner,
 		}
 		result = worker.importParsedSheets(sheets)
-		if len(result.Errors) > 0 {
-			return &ImportValidationError{Errors: append([]string(nil), result.Errors...)}
-		}
 		return nil
 	})
 	if result == nil {
@@ -356,10 +354,6 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, int, []strin
 		seen[key] = struct{}{}
 	}
 
-	if len(errs) > 0 {
-		return 0, skippedDuplicates, errs
-	}
-
 	if len(contracts) > 0 {
 		if err := s.contractRepo.BulkCreateDedicatedFix(contracts); err != nil {
 			errs = append(errs, fmt.Sprintf("Bulk insert dedicated_fix failed: %v", err))
@@ -456,10 +450,6 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, int, []strin
 		seen[key] = struct{}{}
 	}
 
-	if len(errs) > 0 {
-		return 0, skippedDuplicates, errs
-	}
-
 	if len(contracts) > 0 {
 		if err := s.contractRepo.BulkCreateDedicatedVar(contracts); err != nil {
 			errs = append(errs, fmt.Sprintf("Bulk insert dedicated_var failed: %v", err))
@@ -493,22 +483,20 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, int, []string) {
 		}
 
 		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK")
-		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
-		if !ok {
-			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			skippedDuplicates++
-			continue
-		}
-		if duplicate, err := s.contractRepo.FindOncallBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
+		if key, ok := contractDedupeKey(spkNumber, vendorID, millID); ok {
+			if _, exists := seen[key]; exists {
+				skippedDuplicates++
+				continue
+			}
+			if duplicate, err := s.contractRepo.FindOncallBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
+				seen[key] = struct{}{}
+				skippedDuplicates++
+				continue
+			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
+				continue
+			}
 			seen[key] = struct{}{}
-			skippedDuplicates++
-			continue
-		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
-			continue
 		}
 
 		productID, err := s.resolveProduct(row)
@@ -563,11 +551,6 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, int, []string) {
 			Notes:          findField(row, "NOTES", "Notes", "Note"),
 		}
 		contracts = append(contracts, c)
-		seen[key] = struct{}{}
-	}
-
-	if len(errs) > 0 {
-		return 0, skippedDuplicates, errs
 	}
 
 	if len(contracts) > 0 {

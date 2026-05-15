@@ -218,7 +218,7 @@ func TestConfirmImportSkipsDuplicateRows(t *testing.T) {
 	}
 }
 
-func TestConfirmImportRollsBackOnRowErrors(t *testing.T) {
+func TestConfirmImportAllowsOncallWithoutSPKNumber(t *testing.T) {
 	master := &fakeImportMasterRepo{}
 	contract := &fakeImportContractRepo{}
 	tx := &fakeImportTxRunner{master: master, contract: contract}
@@ -237,17 +237,19 @@ func TestConfirmImportRollsBackOnRowErrors(t *testing.T) {
 	}
 
 	result, err := service.ConfirmImport("ignored.xlsx")
-	if err == nil {
-		t.Fatal("ConfirmImport() error = nil, want validation error")
+	if err != nil {
+		t.Fatalf("ConfirmImport() error = %v", err)
 	}
-	var validationErr *ImportValidationError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("ConfirmImport() error = %T, want ImportValidationError", err)
+	if !tx.committed || tx.rolledBack {
+		t.Fatalf("transaction committed=%v rolledBack=%v, want committed only", tx.committed, tx.rolledBack)
 	}
-	if !tx.rolledBack || tx.committed {
-		t.Fatalf("transaction committed=%v rolledBack=%v, want rollback only", tx.committed, tx.rolledBack)
+	if result.OncallInserted != 1 || len(contract.createdOncall) != 1 {
+		t.Fatalf("inserted=%d created=%d, want 1", result.OncallInserted, len(contract.createdOncall))
 	}
-	if len(result.Errors) == 0 {
-		t.Fatal("result.Errors is empty, want row error")
+	if len(result.Errors) != 0 {
+		t.Fatalf("result.Errors = %v, want no errors", result.Errors)
+	}
+	if contract.createdOncall[0].SPKNumber != "" {
+		t.Fatalf("SPKNumber = %q, want empty string", contract.createdOncall[0].SPKNumber)
 	}
 }
