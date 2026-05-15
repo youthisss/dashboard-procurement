@@ -51,10 +51,6 @@ export default function ImportWizardPage() {
   };
 
   const handleUpload = async () => {
-    if (isActualMode) {
-      message.warning("Actual contract import is not connected to backend tables yet.");
-      return;
-    }
     if (fileList.length === 0) {
       message.error("Please select an Excel file first.");
       return;
@@ -85,10 +81,6 @@ export default function ImportWizardPage() {
 
   const handleConfirm = async () => {
     if (!result) return;
-    if (isActualMode) {
-      message.warning("Actual contract import is not connected to backend tables yet.");
-      return;
-    }
     setConfirming(true);
     try {
       const response = await apiClient.post(`${API_URL}/import/confirm`, {
@@ -104,7 +96,7 @@ export default function ImportWizardPage() {
       if (validationResult) {
         setConfirmed(true);
         setConfirmResult(validationResult);
-        message.error("Import was not saved. Review the row errors and upload again.");
+        message.warning("Import completed with warnings. Review row errors.");
       } else {
         message.error(error.response?.data?.error || "Confirm import failed");
       }
@@ -175,7 +167,7 @@ export default function ImportWizardPage() {
             Data Import Wizard
           </Title>
         </div>
-        <ContractModeSwitch value={contractMode} onChange={handleModeChange} />
+        <ContractModeSwitch value={contractMode} actualEnabled onChange={handleModeChange} />
       </div>
 
       <Card
@@ -184,15 +176,6 @@ export default function ImportWizardPage() {
         variant="borderless"
         className="dashboard-card"
       >
-        {isActualMode && (
-          <Alert
-            title="Actual contract import is not available yet"
-            description="The current backend import service writes only plan contract data. Switch to Plan Contract to upload and save the file now."
-            type="warning"
-            showIcon
-            style={{ marginBottom: 16, borderRadius: 8 }}
-          />
-        )}
         <div style={{ marginBottom: 24 }}>
           <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
             Upload your Excel template containing the latest {isActualMode ? "actual" : "plan"} procurement pricing. The system will detect sheet types
@@ -222,7 +205,7 @@ export default function ImportWizardPage() {
 
         <Button
           onClick={handleUpload}
-          disabled={fileList.length === 0 || isActualMode}
+          disabled={fileList.length === 0}
           loading={uploading}
           type="primary"
           size="large"
@@ -300,7 +283,7 @@ export default function ImportWizardPage() {
                 </Divider>
                 <Alert
                   message="Review and edit parsed rows before saving"
-                  description="Changes made in the preview table are sent to the import confirmation step and become the data saved to the plan contract tables."
+                  description={`Changes made in the preview table are sent to the import confirmation step and become the data saved to the ${isActualMode ? "actual" : "plan"} contract tables.`}
                   type="info"
                   showIcon
                   style={{ marginBottom: 16, borderRadius: 8 }}
@@ -356,7 +339,7 @@ export default function ImportWizardPage() {
                 ) : (
                   <Result
                     status={confirmResult?.errors?.length > 0 ? "error" : "success"}
-                    title={confirmResult?.errors?.length > 0 ? "Import not saved" : "Data imported successfully"}
+                    title={confirmResult?.errors?.length > 0 ? "Data imported with warnings" : "Data imported successfully"}
                     subTitle={
                       confirmResult ? (
                         <div>
@@ -365,7 +348,7 @@ export default function ImportWizardPage() {
                           <Text>Oncall: <strong>{confirmResult.oncall_inserted}</strong> inserted, <strong>{confirmResult.oncall_skipped_duplicates || 0}</strong> skipped</Text>
                           {confirmResult.errors?.length > 0 && (
                             <Alert
-                              message={`${confirmResult.errors.length} row error(s); transaction rolled back`}
+                              message={`${confirmResult.errors.length} row warning/error(s); valid rows were still saved`}
                               description={
                                 <div style={{ maxHeight: 200, overflow: "auto" }}>
                                   {confirmResult.errors.map((e: string, i: number) => (

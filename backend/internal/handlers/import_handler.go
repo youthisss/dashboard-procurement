@@ -127,8 +127,8 @@ func (h *ImportHandler) ConfirmImport(c *gin.Context) {
 	if contractMode == "" {
 		contractMode = "plan"
 	}
-	if contractMode != "plan" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "actual contract import is not available yet"})
+	if contractMode != "plan" && contractMode != "actual" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contract_mode must be either 'plan' or 'actual'"})
 		return
 	}
 

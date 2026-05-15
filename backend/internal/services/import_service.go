@@ -60,6 +60,11 @@ type ImportService struct {
 	txRunner      importTransactionRunner
 }
 
+const (
+	importPlaceholderVendor = "UNKNOWN_VENDOR"
+	importPlaceholderMill   = "UNKNOWN_MILL"
+)
+
 // NewImportService creates a new ImportService.
 func NewImportService(parser *ParserService, masterRepo *repositories.MasterRepository, contractRepo *repositories.ContractRepository) *ImportService {
 	return &ImportService{
@@ -188,7 +193,7 @@ func (s *ImportService) importParsedSheets(sheets []ParsedSheet) *ImportResult {
 func (s *ImportService) resolveVendor(row map[string]string) (uint, error) {
 	name := findField(row, "TRANSPORTER/CARRIER", "Transporter/Carrier", "Vendor Name", "Vendor", "vendor_name", "VENDOR NAME", "TRANSPORTER")
 	if name == "" {
-		return 0, fmt.Errorf("vendor name is empty")
+		name = importPlaceholderVendor
 	}
 	// Clean vendor name: sometimes it contains address after / or ,
 	// e.g. "ALIEF SUKSES BERDIKARI, PT / BEKASI 17532" → use full string as name
@@ -203,7 +208,7 @@ func (s *ImportService) resolveVendor(row map[string]string) (uint, error) {
 func (s *ImportService) resolveMill(row map[string]string) (uint, error) {
 	name := findField(row, "MILL/CATEGORY", "Mill/Category", "Mill", "Mill Name", "mill", "MILL")
 	if name == "" {
-		return 0, fmt.Errorf("mill name is empty")
+		name = importPlaceholderMill
 	}
 	mill, err := s.masterRepo.FindOrCreateMillByName(name)
 	if err != nil {
@@ -276,7 +281,6 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, int, []strin
 	var contracts []models.ContractDedicatedFix
 	var errs []string
 	skippedDuplicates := 0
-	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
@@ -295,21 +299,8 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, int, []strin
 		}
 
 		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK", "spk_number", "SPK NO")
-		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
-		if !ok {
+		if strings.TrimSpace(spkNumber) == "" {
 			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			skippedDuplicates++
-			continue
-		}
-		if duplicate, err := s.contractRepo.FindDedicatedFixBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
-			seen[key] = struct{}{}
-			skippedDuplicates++
-			continue
-		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
 			continue
 		}
 
@@ -351,7 +342,6 @@ func (s *ImportService) importDedicatedFix(sheet ParsedSheet) (int, int, []strin
 			ValidityEnd:     parseDate(findField(row, "VALIDITY END", "Validity End", "End Date", "END", "VALIDITY\nEND", "Valid End", "Valid Until", "Validty End", "Expiry", "Expiration", "To Date", "Until")),
 		}
 		contracts = append(contracts, c)
-		seen[key] = struct{}{}
 	}
 
 	if len(contracts) > 0 {
@@ -368,7 +358,6 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, int, []strin
 	var contracts []models.ContractDedicatedVar
 	var errs []string
 	skippedDuplicates := 0
-	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
@@ -387,21 +376,8 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, int, []strin
 		}
 
 		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK")
-		key, ok := contractDedupeKey(spkNumber, vendorID, millID)
-		if !ok {
+		if strings.TrimSpace(spkNumber) == "" {
 			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("SPK number is empty")))
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			skippedDuplicates++
-			continue
-		}
-		if duplicate, err := s.contractRepo.FindDedicatedVarBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
-			seen[key] = struct{}{}
-			skippedDuplicates++
-			continue
-		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
 			continue
 		}
 
@@ -447,7 +423,6 @@ func (s *ImportService) importDedicatedVar(sheet ParsedSheet) (int, int, []strin
 			Notes:         findField(row, "Notes", "Note", "NOTES"),
 		}
 		contracts = append(contracts, c)
-		seen[key] = struct{}{}
 	}
 
 	if len(contracts) > 0 {
@@ -464,7 +439,6 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, int, []string) {
 	var contracts []models.ContractOncall
 	var errs []string
 	skippedDuplicates := 0
-	seen := make(map[string]struct{})
 
 	for i, row := range sheet.Rows {
 		if isEmptyRow(row) {
@@ -483,21 +457,6 @@ func (s *ImportService) importOncall(sheet ParsedSheet) (int, int, []string) {
 		}
 
 		spkNumber := findField(row, "SPK NUMBER", "SPK Number", "SPK")
-		if key, ok := contractDedupeKey(spkNumber, vendorID, millID); ok {
-			if _, exists := seen[key]; exists {
-				skippedDuplicates++
-				continue
-			}
-			if duplicate, err := s.contractRepo.FindOncallBySPKVendorMill(spkNumber, vendorID, millID); err == nil && duplicate != nil {
-				seen[key] = struct{}{}
-				skippedDuplicates++
-				continue
-			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				errs = append(errs, formatImportRowError(sheet.SheetName, rowNumber, fmt.Errorf("duplicate lookup failed: %w", err)))
-				continue
-			}
-			seen[key] = struct{}{}
-		}
 
 		productID, err := s.resolveProduct(row)
 		if err != nil {

@@ -185,7 +185,7 @@ func TestConfirmParsedSheetsImportsEditedPreviewRows(t *testing.T) {
 	}
 }
 
-func TestConfirmImportSkipsDuplicateRows(t *testing.T) {
+func TestConfirmImportDoesNotSkipDuplicateRows(t *testing.T) {
 	master := &fakeImportMasterRepo{}
 	contract := &fakeImportContractRepo{existingFix: map[string]bool{
 		"spk-001|vendor:1|mill:2": true,
@@ -210,11 +210,40 @@ func TestConfirmImportSkipsDuplicateRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfirmImport() error = %v", err)
 	}
-	if result.DedicatedFixInserted != 0 || result.DedicatedFixSkippedDuplicates != 1 {
-		t.Fatalf("inserted=%d skipped=%d, want inserted=0 skipped=1", result.DedicatedFixInserted, result.DedicatedFixSkippedDuplicates)
+	if result.DedicatedFixInserted != 1 || result.DedicatedFixSkippedDuplicates != 0 {
+		t.Fatalf("inserted=%d skipped=%d, want inserted=1 skipped=0", result.DedicatedFixInserted, result.DedicatedFixSkippedDuplicates)
 	}
-	if len(contract.createdFix) != 0 {
-		t.Fatalf("created %d duplicate rows, want 0", len(contract.createdFix))
+	if len(contract.createdFix) != 1 {
+		t.Fatalf("created %d rows, want 1", len(contract.createdFix))
+	}
+}
+
+func TestConfirmImportUsesPlaceholderForMissingVendorAndMill(t *testing.T) {
+	master := &fakeImportMasterRepo{}
+	contract := &fakeImportContractRepo{}
+	tx := &fakeImportTxRunner{master: master, contract: contract}
+	service := &ImportService{
+		parserService: stubImportParser{sheets: []ParsedSheet{{
+			SheetName: "Oncall",
+			SheetType: "oncall",
+			Rows: []map[string]string{{
+				"SPK NUMBER": "SPK-001",
+			}},
+		}}},
+		masterRepo:   master,
+		contractRepo: contract,
+		txRunner:     tx,
+	}
+
+	result, err := service.ConfirmImport("ignored.xlsx")
+	if err != nil {
+		t.Fatalf("ConfirmImport() error = %v", err)
+	}
+	if result.OncallInserted != 1 || len(contract.createdOncall) != 1 {
+		t.Fatalf("inserted=%d created=%d, want 1", result.OncallInserted, len(contract.createdOncall))
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("result.Errors = %v, want no errors", result.Errors)
 	}
 }
 
