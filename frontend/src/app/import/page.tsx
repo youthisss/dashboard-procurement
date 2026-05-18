@@ -2,13 +2,14 @@
 
 import { Upload, Button, Card, Typography, Tag, Alert, Space, Divider, App, Row, Col, Flex, Result, Table, Input } from "antd";
 import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, SaveOutlined, TableOutlined } from "@ant-design/icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import ContractModeSwitch, { type ContractMode } from "@/components/contracts/ContractModeSwitch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 const { Title, Text } = Typography;
 const PREVIEW_PAGE_SIZE = 5;
+const IMPORT_DRAFT_STORAGE_KEY = "import_wizard_draft_v1";
 
 interface ParsedSheet {
   sheet_name: string;
@@ -28,6 +29,13 @@ type PreviewTableRow = Record<string, string | number> & {
   __previewRowIndex: number;
 };
 
+type ImportDraft = {
+  contractMode: ContractMode;
+  result: ImportResponse | null;
+  confirmed: boolean;
+  confirmResult: any;
+};
+
 export default function ImportWizardPage() {
   const [contractMode, setContractMode] = useState<ContractMode>("plan");
   const [fileList, setFileList] = useState<any[]>([]);
@@ -37,6 +45,36 @@ export default function ImportWizardPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [confirmResult, setConfirmResult] = useState<any>(null);
   const { message } = App.useApp();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const rawDraft = window.sessionStorage.getItem(IMPORT_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return;
+
+    try {
+      const draft = JSON.parse(rawDraft) as ImportDraft;
+      if (draft.contractMode) setContractMode(draft.contractMode);
+      setResult(draft.result ?? null);
+      setConfirmed(Boolean(draft.confirmed));
+      setConfirmResult(draft.confirmResult ?? null);
+    } catch {
+      window.sessionStorage.removeItem(IMPORT_DRAFT_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const draft: ImportDraft = {
+      contractMode,
+      result,
+      confirmed,
+      confirmResult,
+    };
+
+    window.sessionStorage.setItem(IMPORT_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  }, [contractMode, result, confirmed, confirmResult]);
 
   const parsedSheets = result?.sheets
     .map((sheet, originalIndex) => ({ ...sheet, originalIndex }))
@@ -110,6 +148,9 @@ export default function ImportWizardPage() {
     setResult(null);
     setConfirmed(false);
     setConfirmResult(null);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(IMPORT_DRAFT_STORAGE_KEY);
+    }
   };
 
   const handlePreviewCellChange = (sheetIndex: number, rowIndex: number, field: string, value: string) => {

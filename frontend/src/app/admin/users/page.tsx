@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Typography } from "antd";
-import { Breadcrumb } from "@refinedev/antd";
+import { App, Button, Card, Flex, Form, Input, Modal, Popconfirm, Space, Table, Typography } from "antd";
 import { DeleteOutlined, LockOutlined, UserAddOutlined } from "@ant-design/icons";
 import { apiClient } from "@/lib/api-client";
 import { getAuthUser } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+const ADMIN_USERS_DRAFT_STORAGE_KEY = "admin_users_create_draft_v1";
 const { Title, Text } = Typography;
 
 type CreateUserPayload = {
@@ -24,6 +24,8 @@ type UserRow = {
   created_at?: string;
 };
 
+type AdminUsersDraft = Partial<CreateUserPayload>;
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const { message } = App.useApp();
@@ -35,6 +37,7 @@ export default function AdminUsersPage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [passwordTargetUser, setPasswordTargetUser] = useState<UserRow | null>(null);
+  const [createUserForm] = Form.useForm<CreateUserPayload>();
   const [passwordForm] = Form.useForm();
 
   useEffect(() => {
@@ -70,11 +73,48 @@ export default function AdminUsersPage() {
     }
   }, [ready]);
 
+  useEffect(() => {
+    if (!ready || typeof window === "undefined") return;
+    const rawDraft = window.sessionStorage.getItem(ADMIN_USERS_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return;
+
+    try {
+      const draft = JSON.parse(rawDraft) as AdminUsersDraft;
+      createUserForm.setFieldsValue({
+        name: draft.name || undefined,
+        username: draft.username || undefined,
+        password: draft.password || undefined,
+      });
+    } catch {
+      window.sessionStorage.removeItem(ADMIN_USERS_DRAFT_STORAGE_KEY);
+    }
+  }, [ready, createUserForm]);
+
+  const persistCreateUserDraft = (values: AdminUsersDraft) => {
+    if (typeof window === "undefined") return;
+    const sanitizedDraft: AdminUsersDraft = {
+      name: values.name?.trim() || "",
+      username: values.username?.trim() || "",
+      password: values.password || "",
+    };
+
+    if (!sanitizedDraft.name && !sanitizedDraft.username && !sanitizedDraft.password) {
+      window.sessionStorage.removeItem(ADMIN_USERS_DRAFT_STORAGE_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(ADMIN_USERS_DRAFT_STORAGE_KEY, JSON.stringify(sanitizedDraft));
+  };
+
   const onFinish = async (values: CreateUserPayload) => {
     setLoading(true);
     try {
       await apiClient.post(`${API_URL}/auth/users`, values);
       message.success("User created successfully");
+      createUserForm.resetFields();
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(ADMIN_USERS_DRAFT_STORAGE_KEY);
+      }
       void fetchUsers();
     } catch (error: any) {
       const err = error?.response?.data?.error || "Failed to create user";
@@ -125,22 +165,26 @@ export default function AdminUsersPage() {
 
   return (
     <div className="dashboard-page">
-      <div style={{ marginBottom: 16 }}>
-        <Breadcrumb />
-      </div>
-
-      <Space direction="vertical" size={24} style={{ width: "100%" }}>
+      <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 24 }}>
         <div>
-          <Title level={2} style={{ margin: "0 0 8px 0", fontWeight: 700 }}>
+          <Title level={2} style={{ margin: 0, fontWeight: 700 }}>
             Admin - User Management
           </Title>
         </div>
+      </Flex>
 
+      <Space direction="vertical" size={24} style={{ width: "100%" }}>
         <Card
           variant="borderless"
           className="dashboard-table-card"
         >
-          <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
+          <Form
+            form={createUserForm}
+            layout="vertical"
+            onFinish={onFinish}
+            onValuesChange={(_, allValues) => persistCreateUserDraft(allValues as AdminUsersDraft)}
+            requiredMark={false}
+          >
             <Form.Item label="Full Name" name="name" rules={[{ required: true, message: "Please input name" }]}>
               <Input placeholder="e.g. John Doe" />
             </Form.Item>

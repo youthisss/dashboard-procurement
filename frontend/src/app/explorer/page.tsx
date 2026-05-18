@@ -32,6 +32,7 @@ import ContractModeSwitch, { type ContractMode } from "@/components/contracts/Co
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+const DATA_EXPLORER_DRAFT_STORAGE_KEY = "data_explorer_draft_v1";
 
 type RelatedEntity = {
   id?: number | string;
@@ -77,6 +78,17 @@ type ColumnDefinition = {
   key: string;
   label: string;
   column: TableColumnsType<ExplorerRow>[number];
+};
+
+type DataExplorerDraft = {
+  selectedMills: Array<string | number>;
+  selectedVendors: Array<string | number>;
+  selectedContractTypes: ExplorerRow["contractType"][];
+  validityStart: string | null;
+  validityEnd: string | null;
+  searchText: string;
+  visibleColumns: string[];
+  contractMode: ContractMode;
 };
 
 const formatIDR = (value: number | null) => {
@@ -132,8 +144,65 @@ export default function DataExplorerPage() {
   const [contractMode, setContractMode] = useState<ContractMode>("plan");
 
   useEffect(() => {
-    setSearchText(searchQuery);
+    if (searchQuery.trim()) {
+      setSearchText(searchQuery);
+    }
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const rawDraft = window.sessionStorage.getItem(DATA_EXPLORER_DRAFT_STORAGE_KEY);
+    if (!rawDraft) return;
+
+    try {
+      const draft = JSON.parse(rawDraft) as DataExplorerDraft;
+      setSelectedMills(Array.isArray(draft.selectedMills) ? draft.selectedMills : []);
+      setSelectedVendors(Array.isArray(draft.selectedVendors) ? draft.selectedVendors : []);
+      setSelectedContractTypes(
+        Array.isArray(draft.selectedContractTypes) ? draft.selectedContractTypes : [],
+      );
+      setSearchText(draft.searchText || "");
+      setVisibleColumns(
+        Array.isArray(draft.visibleColumns) && draft.visibleColumns.length > 0
+          ? draft.visibleColumns
+          : DEFAULT_VISIBLE_COLUMNS,
+      );
+      setContractMode(draft.contractMode === "actual" ? "actual" : "plan");
+
+      if (draft.validityStart && draft.validityEnd) {
+        const start = dayjs(draft.validityStart);
+        const end = dayjs(draft.validityEnd);
+        if (start.isValid() && end.isValid()) {
+          setValidityRange([start, end]);
+        }
+      }
+    } catch {
+      window.sessionStorage.removeItem(DATA_EXPLORER_DRAFT_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const draft: DataExplorerDraft = {
+      selectedMills,
+      selectedVendors,
+      selectedContractTypes,
+      validityStart: validityRange?.[0]?.toISOString() || null,
+      validityEnd: validityRange?.[1]?.toISOString() || null,
+      searchText,
+      visibleColumns,
+      contractMode,
+    };
+    window.sessionStorage.setItem(DATA_EXPLORER_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  }, [
+    selectedMills,
+    selectedVendors,
+    selectedContractTypes,
+    validityRange,
+    searchText,
+    visibleColumns,
+    contractMode,
+  ]);
 
   const { query: oncallQuery } = useList<RawContract>({
     resource: "contracts/oncall",
