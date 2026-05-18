@@ -1,3 +1,0 @@
-# This project does not use Python/pip dependencies.
-# Backend dependencies are managed with Go modules (backend/go.mod).
-# Frontend dependencies are managed with npm (frontend/package.json).
