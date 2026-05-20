@@ -61,23 +61,36 @@ func StrictOriginForUnsafeMethods(cfg *config.Config) gin.HandlerFunc {
 }
 
 func exactFrontendOrigins(cfg *config.Config) map[string]bool {
-	origins := map[string]bool{
-		"http://localhost:3000": true,
-		"http://localhost:3001": true,
+	origins := frontendOriginList(cfg)
+	allowed := make(map[string]bool, len(origins))
+	for _, origin := range origins {
+		allowed[origin] = true
 	}
+	return allowed
+}
+
+func frontendOriginList(cfg *config.Config) []string {
+	defaults := []string{"http://localhost:3000", "http://localhost:3001"}
 	if cfg == nil || strings.TrimSpace(cfg.FrontendOrigins) == "" {
-		return origins
+		return defaults
 	}
-	parsed := make(map[string]bool)
+
+	seen := make(map[string]bool)
+	parsed := make([]string, 0)
 	for _, raw := range strings.Split(cfg.FrontendOrigins, ",") {
 		origin := strings.TrimSpace(raw)
 		if origin == "" || strings.Contains(origin, "*") {
 			continue
 		}
-		parsed[origin] = true
+		if seen[origin] {
+			continue
+		}
+		seen[origin] = true
+		parsed = append(parsed, origin)
 	}
+
 	if len(parsed) == 0 {
-		return origins
+		return defaults
 	}
 	return parsed
 }
