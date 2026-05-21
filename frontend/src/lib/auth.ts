@@ -1,6 +1,7 @@
 "use client";
 
 const USER_KEY = "auth_user";
+const TOKEN_KEY = "auth_token";
 
 export type AuthUser = {
   id: number;
@@ -10,16 +11,21 @@ export type AuthUser = {
 };
 
 export function getToken(): string | null {
-  return null;
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
 }
 
-export function setAuth(_token: string, user: AuthUser) {
+export function setAuth(token: string, user: AuthUser) {
   if (typeof window === "undefined") return;
+  if (typeof token === "string" && token.trim() !== "") {
+    window.localStorage.setItem(TOKEN_KEY, token);
+  }
   window.localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearAuth() {
   if (typeof window === "undefined") return;
+  window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
 }
 

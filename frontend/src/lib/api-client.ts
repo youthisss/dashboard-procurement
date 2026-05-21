@@ -1,10 +1,19 @@
 "use client";
 
 import axios from "axios";
-import { clearAuth } from "@/lib/auth";
+import { clearAuth, getToken } from "@/lib/auth";
 
 export const apiClient = axios.create({
   withCredentials: true,
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 apiClient.interceptors.response.use(

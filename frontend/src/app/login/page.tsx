@@ -18,6 +18,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1
 const { Title, Text } = Typography;
 
 type LoginResponse = {
+  token: string;
   user: {
     id: number;
     name: string;
@@ -59,7 +60,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await apiClient.post<LoginResponse>(`${API_URL}/auth/login`, values);
-      setAuth("", data.user);
+      setAuth(data.token, data.user);
       message.success("Login successful");
       router.replace("/overview");
     } catch (error: any) {

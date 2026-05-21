@@ -47,6 +47,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	h.setAuthCookie(c, token)
 
 	c.JSON(http.StatusOK, gin.H{
+		"token": token,
 		"user": h.userPayload(user),
 	})
 }
