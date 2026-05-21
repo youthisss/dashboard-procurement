@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AutoComplete, Input, Typography, Empty, theme } from "antd";
+import { AutoComplete, Input, Typography, Empty, Grid, theme } from "antd";
 import {
   BankOutlined,
   EnvironmentOutlined,
@@ -163,6 +163,8 @@ const highlightMatch = (text: string, query: string, tokenColor: string) => {
 
 export function GlobalSearchBar() {
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState<any[]>([]);
@@ -316,8 +318,8 @@ export function GlobalSearchBar() {
       value={inputValue}
       options={options}
       filterOption={false}
-      style={{ width: 420, maxWidth: "100%" }}
-      popupMatchSelectWidth={420}
+      style={{ width: "min(420px, 100%)", maxWidth: "100%" }}
+      popupMatchSelectWidth={isMobile ? false : 420}
       notFoundContent={
         inputValue.trim().length >= 2 && !loading ? (
           <Empty

@@ -5,6 +5,16 @@ body {
   background: var(--background);
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 :root {
   --dashboard-page-padding: 32px 40px;
   --dashboard-page-max-width: 1400px;
@@ -136,4 +146,117 @@ body {
 .global-search-popup .ant-select-item-empty {
   padding: 4px 12px !important;
   min-height: auto !important;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --dashboard-page-padding: 16px;
+    --dashboard-header-gap: 18px;
+    --dashboard-section-gap: 16px;
+    --dashboard-card-radius: 10px;
+  }
+
+  .dashboard-page,
+  .dashboard-page-form,
+  .dashboard-page-full,
+  .dashboard-page-wide {
+    width: 100%;
+    max-width: 100%;
+    min-height: calc(100vh - 112px);
+  }
+
+  .dashboard-page-header {
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: var(--dashboard-header-gap);
+  }
+
+  .dashboard-page-header > * {
+    max-width: 100%;
+  }
+
+  .dashboard-page-header .ant-space {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-page-header .ant-typography {
+    overflow-wrap: anywhere;
+  }
+
+  .dashboard-action-button,
+  .dashboard-page-header .ant-btn {
+    width: 100%;
+  }
+
+  .dashboard-search-strip {
+    padding: 12px;
+  }
+
+  .dashboard-search-strip .ant-form,
+  .dashboard-search-strip .ant-form-item,
+  .dashboard-search-strip .ant-input,
+  .dashboard-search-strip .ant-input-affix-wrapper {
+    width: 100%;
+  }
+
+  .dashboard-card .ant-card-body,
+  .dashboard-panel-card .ant-card-body {
+    padding: 16px !important;
+  }
+
+  .dashboard-page-form .ant-row,
+  .dashboard-page-full .ant-row {
+    row-gap: 0 !important;
+  }
+
+  .dashboard-page-form .ant-col,
+  .dashboard-page-full .ant-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+
+  .dashboard-table-card,
+  .dashboard-table-card .ant-card-body {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dashboard-table-card .ant-table-wrapper,
+  .dashboard-table-card .ant-table,
+  .dashboard-table-card .ant-table-container,
+  .dashboard-table-card .ant-table-content {
+    max-width: 100%;
+  }
+
+  .dashboard-table-card .ant-table-content {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-table-card .ant-table {
+    font-size: 12px;
+  }
+
+  .dashboard-table-card .ant-table-cell {
+    padding: 10px 12px !important;
+    white-space: nowrap;
+  }
+
+  .dashboard-table-card .ant-pagination {
+    padding: 0 12px 12px;
+    justify-content: center;
+  }
+
+  .ant-tabs-nav {
+    max-width: 100%;
+  }
+
+  .ant-tabs-nav-list {
+    min-width: max-content;
+  }
+
+  .ant-descriptions-view {
+    overflow-x: auto;
+  }
 }
