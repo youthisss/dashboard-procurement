@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rygell-postgres-demo
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:-rygell_dashboard_demo}
+    volumes:
+      - pgdata_demo:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend-net-demo
+
+  rygell-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rygell-api-demo
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-rygell_dashboard_demo}
+      DB_SSLMODE: disable
+      DB_LOG_LEVEL: ${DB_LOG_LEVEL:-warn}
+      SERVER_PORT: 8080
+      UPLOAD_DIR: /app/uploads
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:?FRONTEND_ORIGINS is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required and must be at least 32 characters}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      COOKIE_NAME: ${COOKIE_NAME:-auth_token}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-None}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrator}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_SYNC_PASSWORD: ${ADMIN_SYNC_PASSWORD:-false}
+      GIN_MODE: ${GIN_MODE:-release}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-10485760}
+      IMPORT_MAX_BYTES: ${IMPORT_MAX_BYTES:-57671680}
+      IMPORT_JSON_BYTES: ${IMPORT_JSON_BYTES:-20971520}
+      IMPORT_KEEP_FILES: ${IMPORT_KEEP_FILES:-false}
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8081}:8080"
+    volumes:
+      - uploads_demo:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    networks:
+      - backend-net-demo
+
+volumes:
+  pgdata_demo:
+  uploads_demo:
+
+networks:
+  backend-net-demo:
+    driver: bridge
